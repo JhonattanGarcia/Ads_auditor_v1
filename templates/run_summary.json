@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "run_id": null,
+  "status": "not_started",
+  "started_at": null,
+  "finished_at": null,
+  "reference_date": null,
+  "timezone": "America/Bogota",
+  "profile_ids": [],
+  "counts": {
+    "observed": 0,
+    "unique_ads": 0,
+    "new_ads": 0,
+    "blacklisted": 0,
+    "whitelisted": 0,
+    "brownlisted": 0,
+    "pending": 0,
+    "incomplete": 0,
+    "reported": 0
+  },
+  "warnings": [],
+  "errors": []
+}

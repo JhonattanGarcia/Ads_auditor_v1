@@ -1,0 +1,26 @@
+{
+  "synthetic": true,
+  "ads": [
+    {
+      "ad_id": "fixture_ad_001",
+      "advertiser_id": "fixture_advertiser_001",
+      "country": "CO",
+      "body": "Marca ficticia credito",
+      "delivery_start_time": "2026-11-15T12:00:00+00:00"
+    },
+    {
+      "ad_id": "fixture_ad_002",
+      "advertiser_id": "fixture_advertiser_001",
+      "country": "CO",
+      "body": "Marca ficticia cuenta",
+      "delivery_start_time": "2026-11-14T12:00:00+00:00"
+    },
+    {
+      "ad_id": "fixture_ad_003",
+      "advertiser_id": null,
+      "country": "CO",
+      "body": "Marca ficticia sin fecha",
+      "delivery_start_time": null
+    }
+  ]
+}

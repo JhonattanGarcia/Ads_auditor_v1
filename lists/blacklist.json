@@ -1,0 +1,6 @@
+﻿{
+  "schema_version": "1.0",
+  "list_type": "blacklist",
+  "identity_fields": ["source", "advertiser_id"],
+  "entries": []
+}

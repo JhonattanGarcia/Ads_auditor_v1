@@ -1,0 +1,6 @@
+﻿{
+  "schema_version": "1.0",
+  "list_type": "brownlist",
+  "identity_fields": ["source", "ad_id"],
+  "entries": []
+}

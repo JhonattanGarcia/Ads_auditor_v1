@@ -1,0 +1,38 @@
+/documentación/
+
+# Python y herramientas
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Configuracion privada
+.env
+.env.*
+!.env.example
+/profiles/local/*
+!/profiles/local/.gitkeep
+
+# Datos locales: conservar unicamente estructura y guia
+/data/**
+!/data/README.md
+!/data/database/
+!/data/database/.gitkeep
+!/data/evidence/
+!/data/evidence/.gitkeep
+!/data/exports/
+!/data/exports/.gitkeep
+!/data/backups/
+!/data/backups/.gitkeep
+!/data/logs/
+!/data/logs/.gitkeep
+
+!/data/results/
+!/data/results/.gitkeep

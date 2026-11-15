@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "brand-threat-monitor"
+version = "0.1.0"
+description = "Auditoria local de posibles suplantaciones en anuncios de Meta"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["meta-ads-collector==1.7.2", "tzdata>=2025.2"]
+
+[project.scripts]
+brand-threat-monitor = "brand_threat_monitor.cli:main"
+brand-threat-monitor-ui = "brand_threat_monitor.ui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"brand_threat_monitor.storage" = ["migrations/*.sql"]

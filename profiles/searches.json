@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "profiles": [
+    {
+      "path": "example.json",
+      "enabled": true
+    }
+  ],
+  "output": {
+    "directory": "../data/results",
+    "format": "json"
+  }
+}
