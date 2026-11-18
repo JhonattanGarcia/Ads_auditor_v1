@@ -1,217 +1,183 @@
 # Roadmap — Brand Threat Monitor
 
-Fecha: 14 de noviembre de 2026.
-Fuente: `documentación/Requisitos_Funcionales_Brand_Threat_Monitor.pdf`, versión 1.0, 18 páginas.
-Estado: fase 0 parcialmente validada; fase 1 en curso con esquema SQLite, migraciones e importacion idempotente de resultados. Ninguna fase completa aun.
+Actualizado: **17 de noviembre de 2026**.
+Fuente funcional: `documentación/Requisitos_Funcionales_Brand_Threat_Monitor.pdf`, versión 1.0.
 
-## Objetivo y alcance
+## Estado actual
 
-Construir una aplicación local con Python, SQLite e interfaz local para convertir búsquedas de anuncios por marca y país en una cola priorizada y auditable. El analista decide la clasificación y realiza los reportes a Meta manualmente.
+Aplicación local en Python, SQLite y Tkinter con búsquedas configurables, resultados JSON, persistencia automática, listas, revisión humana, históricos, exportaciones y respaldos verificados. **El MVP todavía no está cerrado.**
 
-El MVP completo incluye configuración JSON, recolección desacoplada, persistencia, listas, auditoría, evidencia disponible, históricos, exportación básica y respaldo/restauración. La disponibilidad de campos y cobertura depende de la fuente validada.
+La última verificación ejecutada pasó **113 pruebas**. Hay pruebas de integración con datos ficticios, comprobaciones de arranque de UI y consultas/restauraciones reales documentadas; esto no equivale a haber aprobado todos los criterios CA y escenarios E2E del documento funcional.
 
-Quedan fuera del MVP: denuncias automáticas, bloqueo de páginas, navegación automática a destinos sospechosos, atribución legal, IA, reconocimiento avanzado de logos y operación distribuida. No se promete cobertura total ni recuperación retrospectiva que la fuente no permita.
+**Pendiente crítico del conector:** Meta devuelve anuncios fuera del rango aunque se envíe `startDate` en cada solicitud. Se detiene la consulta con `ServerDateFilterMismatch`; no se presenta ese resultado como una búsqueda vacía ni como cobertura validada. Ordenar por impresiones no permite detenerse cronológicamente al primer anuncio antiguo. Ver `docs/CONNECTOR_FEASIBILITY.md` y la sección de filtro temporal del README.
 
-## Reglas que condicionan toda la implementación
+El desarrollo avanzó en varias fases en paralelo. Las casillas describen entregables concretos; una fase con pendientes no se considera terminada. Se eliminaron los anexos acumulativos que repetían tareas ya incorporadas a estas fases.
 
-- Blanca y negra cruzan por `advertiser_id`; marrón cruza exclusivamente por `ad_id`. Todas las identidades se distinguen por fuente.
-- Resolver conflictos blanca/negra explícitamente antes de clasificar. Sin conflicto, aplicar negra → blanca → marrón → desconocido.
-- Un anunciante negro da prioridad a cada anuncio nuevo; no confirma automáticamente fraude ni un reporte individual.
-- Persistir observaciones aunque un anuncio quede fuera de la cola. Separar primera/última observación de las fechas de publicación que informe la fuente.
-- Guardar clasificación, efecto en listas y evento de auditoría en una misma transacción. Corregir mediante eventos con justificación, sin borrar historia.
-- Mantener separados clasificación, prioridad, estado de revisión y estado del reporte externo.
+## Reglas vigentes
 
-## Secuencia de entrega
+- Blanca y negra identifican anunciantes por fuente y `advertiser_id`; marrón identifica publicaciones por fuente y `ad_id`.
+- Conflictos blanca/negra requieren resolución explícita. Sin conflicto: negra → blanca → marrón → desconocido.
+- Los antecedentes priorizan anuncios nuevos, sin confirmar automáticamente fraude ni reportarlos.
+- Clasificación, cambios de listas y auditoría se guardan transaccionalmente. Las correcciones conservan eventos y evidencia previa.
+- Los reportes a Meta son manuales; sus estados externos son independientes de la clasificación.
+- Las fechas de observación se distinguen de la fecha de inicio del anuncio; no se promete cobertura total.
 
-Las fases se ejecutan en orden. Las pruebas, seguridad y trazabilidad se incorporan desde cada fase; la última consolida la validación integral. No se fijan fechas hasta resolver viabilidad, interfaz y capacidad de trabajo.
+## Preferencias incorporadas
 
-### Fase 0 — Viabilidad y decisiones técnicas
+- [x] Interfaz en inglés.
+- [x] Control **Days to review**, predeterminado 1, con ventana inclusiva hasta hoy en `America/Bogota`.
+- [x] Lista manual editable: Enabled, Country, Search criteria y Delete. Solo se ejecutan filas habilitadas.
+- [x] Enabled aplica inmediatamente a la fila seleccionada; sin selección define el estado de la siguiente fila.
+- [x] Guardado automático de lista, activaciones y días en `data/search_list.json`; restauración al abrir. Exportación manual opcional de una copia.
+- [x] Sin controles de identidad del analista en UI. Auditoría gráfica con `local_operator`; CLI conserva opciones de actor explícito.
 
-- [ ] Probar una consulta real de un país y criterio representativos; documentar acceso permitido, campos, IDs, URLs, paginación, errores y cobertura.
-- [ ] Evaluar condiciones de consulta y almacenamiento de medios antes de seleccionar un conector; no asumir acceso oficial a anuncios comerciales de Colombia.
-- [x] Definir contrato reemplazable del adaptador: consulta, normalización, versión, capacidades, fallos, cancelación y resultados parciales.
-- [x] Preparar datos de prueba reproducibles para desarrollar sin depender de Meta. Estos datos no sustituyen la validación real del conector.
-- [ ] Elegir interfaz local tras comprobar las dos pantallas principales; registrar la decisión sin imponer aún un framework.
-- [ ] Acordar alcance de listas, evidencia mínima de Ataque e identificación del analista.
+## Fase 0 — Viabilidad y decisiones técnicas
 
-**Salida:** informe de viabilidad con una búsqueda real reproducible, limitaciones explícitas y decisión de fuente. Si no existe una fuente viable, continuar con datos de prueba y dejar la integración real bloqueada, sin presentarla como operativa.
+**Estado: validación parcial; fuente provisional.**
 
-**Trazabilidad:** RF-003, RF-004, RF-009, RF-014; RNF-01, RNF-03, RNF-11.
+- [x] Ejecutar consultas reales de `pichincha / CO` y `chivo / SV`, investigar IDs y documentar diferencias con Biblioteca manual.
+- [x] Definir contrato reemplazable, adaptador Meta y fuente ficticia para pruebas sin red.
+- [x] Seleccionar Tkinter e implementar las dos pantallas principales y ventanas auxiliares; documentar la decisión técnica.
+- [x] Enviar rango temporal en primera página y cursores sucesivos, con diagnóstico de solicitudes sin tokens.
+- [x] Detectar respuesta incompatible con el rango y detener paginación conservando resultados recibidos.
+- [ ] Conseguir un conector/endpoint que respete el filtro temporal y validar equivalencia con búsqueda manual y continuidad de paginación.
+- [ ] Evaluar condiciones de consulta, privacidad y almacenamiento de material antes de seleccionar definitivamente la fuente.
+- [ ] Acordar protocolo operativo de evidencia mínima y validar ergonomía con el analista.
 
-### Fase 1 — Base local, perfiles e integridad
+Salida pendiente: fuente apta para el uso previsto, con límites medidos y condiciones evaluadas. Mientras tanto, los servicios pueden desarrollarse y probarse con datos ficticios, sin declarar resuelta la recolección real.
 
-- [ ] Separar configuración, recolección, normalización, almacenamiento, listas, auditoría e interfaz.
-- [x] Crear esquema SQLite y migraciones para clientes, criterios, ejecuciones/consultas, anunciantes, anuncios, observaciones, URLs, listas, casos, reportes, evidencia y audit_log.
-- [x] Definir claves únicas por fuente, relaciones e índices; evitar duplicados de anuncio y de vínculo anuncio/ejecución. Preservar la procedencia por consulta cuando varias consultas encuentren el mismo anuncio.
-- [ ] Validar perfiles JSON versionados, país, cliente, criterios y activación; permitir seleccionar perfiles independientes y editar la tabla de configuración.
-- [ ] Implementar análisis y adaptación de URLs conforme a `URL_SEARCH_SPEC.md`: JSON prioritario, día actual de Colombia por defecto, ventanas inclusivas, rangos fijos y registro de diferencias. Usar `profiles/example.json` como ejemplo de contrato propuesto.
-- [ ] Configurar y validar rutas de perfiles, base, medios, resultados, exportaciones, respaldos y logs.
-- [ ] Implementar transacciones, eventos de auditoría, identificación de actor y respaldo inicial. Activar WAL cuando corresponda.
+Trazabilidad: RF-003, RF-004, RF-009, RF-014; RNF-01, RNF-03, RNF-11.
 
-**Salida:** perfiles válidos habilitan ejecución; perfiles inválidos muestran campo y causa. Base inicial migrable y cambios auditables.
+## Fase 1 — Configuración, base local e integridad
 
-**Trazabilidad:** RF-001–007, RF-038, RF-041; RNF-02–05. Pruebas CA-01 y CA-02.
+**Estado: base operativa; configuración avanzada pendiente.**
 
-### Fase 2 — Recolección, ingesta y observaciones
+- [x] Separar módulos de configuración, búsqueda, recolección, persistencia, listas, revisión, exportaciones, respaldo y UI. Algunos módulos reservados siguen sin implementación.
+- [x] Crear esquema SQLite con migraciones, claves foráneas, índices, identidad por fuente y WAL.
+- [x] Validar perfiles/manifiestos JSON: versión, campos, país ISO, criterios, activación, zona horaria y coherencia de fechas.
+- [x] Construir URLs codificadas con país/criterio del perfil y rangos hoy, ventana inclusiva o fijo.
+- [x] Permitir edición manual de búsquedas en UI y ejecución independiente por criterio.
+- [x] Resolver rutas del manifiesto respecto a su archivo y comprobar escritura de salida antes de consultar.
+- [x] Implementar transacciones, auditoría, actor interno y respaldo inicial SQLite.
+- [ ] Completar configuración gráfica centralizada de todas las rutas: base, medios, exportaciones, respaldos y logs.
+- [ ] Registrar un desglose explícito de diferencias entre URL original y efectiva, además de conservar ambas.
 
-- [ ] Integrar el adaptador validado con inicio, detención controlada y progreso por criterio.
-- [ ] Registrar RUN_ID, consultas y URLs, inicio/fin, versión de fuente, conteos, advertencias y estado.
-- [ ] Conservar datos normalizados y datos brutos cuando esté permitido; deduplicar por fuente/ad_id y vincular observaciones sin duplicar anuncios.
-- [ ] Preservar datos válidos ante fallo, cancelación o paginación incompleta; permitir reintento idempotente.
-- [ ] Aislar ingestas sin ID válido y marcar información incompleta; impedir decisiones permanentes sobre identidades no verificadas.
-- [ ] Registrar URLs originales/normalizadas y su tipo. Capturar referencias de medios disponibles; las descargas se completan en fase 4.
-- [ ] Mostrar errores accionables y métricas reales por ejecución, sin equiparar observación a monitoreo en vivo.
+Trazabilidad: RF-001–007, RF-038, RF-041; RNF-02–05.
 
-**Salida:** una ejecución repetida no duplica anuncios; un fallo parcial conserva lo obtenido y declara cobertura incompleta.
+## Fase 2 — Recolección, ingesta y observaciones
 
-**Trazabilidad:** RF-008–016, RF-040, RF-042; RNF-04, RNF-05, RNF-09. Pruebas CA-03, CA-11 y E2E-C.
+**Estado: flujo conectado; equivalencia de fuente y recuperación incremental pendientes.**
 
-### Fase 3 — Listas, cola y auditoría humana
+- [x] Conectar búsqueda → `results.json` → SQLite → `run_summary.json`, con cliente y actor.
+- [x] Registrar RUN_ID, URLs original/efectiva, filtros solicitados, versión, tiempos, cobertura, errores y conteos.
+- [x] Deduplicar anuncios por fuente/ID, conservar primera/última observación y relacionar corridas y consultas.
+- [x] Separar registros sin identidad/fecha verificable y diagnósticos de descarte del conjunto de anuncios aceptados.
+- [x] Preservar resultados recibidos ante fallo de fuente o cancelación controlada; reimportar el mismo documento sin duplicar datos ni auditoría.
+- [x] Ejecutar proveedor en proceso terminable: 120 segundos totales y 45 sin recibir anuncios; Stop no espera a que termine HTTP.
+- [x] Mostrar progreso de recepción/filtrado y distinguir resultados parciales de fallos de persistencia.
+- [ ] Añadir checkpoints incrementales para recuperar datos ante terminación abrupta antes del guardado final.
+- [ ] Completar extracción/normalización de URLs de destino y tipos; actualmente se conserva payload y URL de Biblioteca, sin catálogo completo de destinos.
+- [ ] Validar persistencia de datos brutos permitidos y conservar versiones históricas de creatividades cuando corresponda.
 
-- [ ] Implementar blanca/negra por anunciante y marrón por anuncio, con scope, motivo, autor, fecha y procedencia.
-- [ ] Resolver conflictos blanca/negra sin decisiones automáticas ni eliminación silenciosa.
-- [ ] Aplicar precedencia y conservar observaciones de blancos/marrones; ofrecer revisión extraordinaria.
-- [ ] Construir cola determinista con motivo visible, filtros, ordenación y búsqueda exacta de IDs. La temperatura representa atención, sin expresar probabilidad de fraude.
-- [ ] Implementar Inicio/Configuración y Auditoría; mostrar IDs, texto, título, medios y URLs disponibles, con marcadores de ausencias e historial del anunciante.
-- [ ] Mantener posición, filtros y avance al navegar entre casos.
-- [ ] Spam: confirmar el anuncio y crear marrón. Ataque: confirmar alcance del anunciante y exigir motivo, evidencia y antecedente. Pendiente: conservar caso sin modificar listas.
-- [ ] Permitir correcciones justificadas y actualizar estado efectivo sin borrar eventos.
-- [ ] Abrir deliberadamente el anuncio original de Biblioteca; evitar aperturas automáticas de destinos sospechosos.
+Los descartados por fecha se conservan como diagnóstico de la corrida; no se convierten automáticamente en anuncios/casos de auditoría.
 
-**Salida:** flujo de revisión operable, persistente y auditable; un anuncio marrón de anunciante negro sigue priorizado y Spam no excluye otros anuncios del anunciante.
+Trazabilidad: RF-008–016, RF-040, RF-042; RNF-04, RNF-05, RNF-09.
 
-**Trazabilidad:** RF-017–031, RF-041, RF-043, RF-044; RN-01–05; RNF-06, RNF-07, RNF-10. Pruebas CA-04–10, CA-12 y E2E-A.
+## Fase 3 — Listas, cola y decisiones humanas
 
-### Fase 4 — Evidencia, reportes, históricos y portabilidad
+**Estado: revisión funcional; administración de listas pendiente.**
 
-- [ ] Guardar medios permitidos con hashes, tipos/tamaños limitados y rutas saneadas; tolerar fallos de descarga con referencia original y marcador de ausencia.
-- [ ] Registrar reportes manuales por caso/anuncio con actor, fecha, plataforma, referencia disponible, notas y estado externo conocido. No inferir aceptación ni retirada.
-- [ ] Entregar Históricos, Listado URLs y detalle del anunciante con relaciones, cronología y búsqueda.
-- [ ] Importar/exportar listas CSV/JSON con validación, duplicados, procedencia, respaldo previo y gestión explícita de conflictos.
-- [ ] Exportar expediente por anuncio en JSON/CSV con datos realmente obtenidos; proteger CSV contra fórmulas. PDF queda opcional.
-- [ ] Implementar respaldo consistente y restauración verificada de SQLite, perfiles y evidencia, con comprobación de integridad.
-- [ ] Completar métricas de encontrados, nuevos, negros, blancos, marrones, pendientes, incompletos y reportados.
+- [x] Cargar y validar blanca/negra/marrón JSON, alcance, duplicados, antecedentes y referencias requeridas para negra.
+- [x] Combinar listas JSON con decisiones activas SQLite sin reescribir los archivos de entrada.
+- [x] Detectar conflictos entre alcances aplicables, excluirlos de clasificación automática y priorizar negra sobre marrón.
+- [x] Construir cola determinista con motivos y filtrar por cliente, país, criterio, anunciante exacto y fechas locales.
+- [x] Abrir casos por anuncio/fuente/cliente; aplicar Spam, Ataque y Pendiente con auditoría atómica y confirmaciones distintas.
+- [x] Exigir archivo de evidencia existente, hash y límite inicial de 20 MiB para Ataque.
+- [x] Corregir con justificación y reapertura, conservando evidencia y antecedentes sustentados por otros casos.
+- [x] Navegar anterior/siguiente y conservar selección o posición cercana al actualizar la cola.
+- [x] Abrir deliberadamente el anuncio en Biblioteca sin abrir destinos sospechosos automáticamente.
+- [ ] Implementar resolución administrativa de conflictos, mantenimiento de whitelist e importación/exportación masiva CSV/JSON con respaldo y procedencia.
+- [ ] Incorporar revisión extraordinaria de blancos/marrones, filtros por estado/lista y ordenación configurable completa.
+- [ ] Optimizar consultas y paginación para volumen alto; los filtros iniciales procesan contextos locales en memoria.
 
-**Salida:** expediente reconstruible, reporte manual diferenciado de resolución externa y restauración comprobada en una ubicación de prueba.
+Trazabilidad: RF-017–031, RF-041, RF-043, RF-044; RN-01–05; RNF-06, RNF-07, RNF-10.
 
-**Trazabilidad:** RF-015, RF-025, RF-032–040; RNF-02, RNF-06–09. Pruebas CA-13–15 y E2E-B.
+## Fase 4 — Evidencia, históricos, exportación y respaldos
 
-### Fase 5 — Validación integral y entrega del MVP
+**Estado: históricos, exportación y respaldo operativos; multimedia pendiente.**
 
-- [ ] Ejecutar CA-01–15 y E2E-A/B/C con datos reproducibles y una prueba de integración real de alcance conocido.
-- [ ] Verificar atomicidad ante error, reversión, conflicto entre listas, reintentos, reinicio de la aplicación y persistencia del avance.
-- [ ] Verificar escape de contenido, navegación deliberada, ausencia de secretos en logs, límites de archivos y retención configurable.
-- [ ] Revisar teclado, contraste, etiquetas y prioridades comprensibles sin depender solo del color.
-- [ ] Añadir prueba de humo que detecte rupturas del adaptador y documentar diagnóstico, cobertura y límites.
-- [ ] Documentar instalación, configuración, revisión, reporte manual, respaldo y restauración; realizar piloto con un perfil y aceptar los resultados con el analista.
+- [x] Mostrar ficha textual con IDs, anunciante, contenido, URLs/referencias de medios y ausencias explícitas.
+- [x] Consultar históricos de corridas/casos, eventos, evidencia y reportes desde UI y CLI.
+- [x] Registrar reportes manuales con fecha zonificada, referencia, notas y estado externo, sin inferir aceptación o retirada.
+- [x] Aplicar filtros a corridas y casos: fechas inclusivas de inicio de corrida u observación, respectivamente.
+- [x] Exportar expediente JSON/CSV con contenido obtenido, consultas, observaciones, URLs, eventos, evidencia referenciada y reportes.
+- [x] Proteger celdas CSV frente a fórmulas y evitar sobrescritura de exportaciones existentes.
+- [x] Crear respaldo completo de SQLite, perfiles, listas, búsquedas guardadas y evidencia local interna/externa referenciada.
+- [x] Verificar hashes, integridad y evidencia; restaurar en carpeta nueva y ajustar rutas de evidencia con auditoría. Probado con una restauración real.
+- [ ] Implementar previsualización multimedia local con límites de tipo/tamaño y gestión controlada de archivos permitidos.
+- [ ] Completar custodia de evidencia: copia administrada, verificación continua, retención y tolerancia a archivos ausentes.
+- [ ] Entregar Listado URLs y vista completa de anunciante con relaciones, reincidencias e historial.
+- [ ] Consolidar métricas de revisiones/reportes posteriores sin reescribir resúmenes históricos de búsquedas.
+- [ ] Añadir controles gráficos de respaldo/restauración y reubicación de rutas personalizadas.
+- [ ] Ofrecer PDF opcional y expediente autocontenido con archivos de evidencia, además de sus referencias.
 
-**Salida:** todos los criterios del MVP aprobados, limitaciones documentadas y respaldo restaurado correctamente. Los controles RNF-01–12 aplicables quedan verificados; no se requieren servicios externos de reputación para el flujo básico.
+El respaldo completo actual contiene datos y no el código; se opera por CLI. SQLite es una instantánea transaccional; perfiles y evidencia se verifican individualmente, sin transacción global del sistema de archivos. Ver README para exclusiones y restauración.
 
-**Trazabilidad:** RF-001–044; CA-01–15; E2E-A/B/C; RNF-01–12.
+Trazabilidad: RF-015, RF-025, RF-032–040; RNF-02, RNF-06–09.
 
-### Evolución posterior — Opcional
+## Fase 5 — Validación integral y cierre del MVP
 
-- [ ] Programación configurable con límites y visibilidad de cobertura.
-- [ ] Correlaciones entre anuncios, anunciantes y URLs con explicación de señales.
-- [ ] Reputación externa bajo demanda, previa validación de licencias, cuotas y sanitización de URLs; no enviar tokens ni datos sensibles a servicios públicos.
-- [ ] Exportación PDF y mejoras de priorización basadas en resultados del piloto.
+**Estado: pruebas parciales continuas; aceptación integral pendiente.**
 
-Estas funciones no condicionan la aceptación del MVP. IA, análisis activo de destinos y operación distribuida requieren definición de alcance adicional.
+- [x] Mantener pruebas de regresión para perfiles, URLs, listas, persistencia, cancelación, revisiones, reportes, exportación, filtros y respaldos.
+- [x] Verificar casos de atomicidad, reimportación idempotente, conservación de historia y restauración con datos reproducibles.
+- [ ] Mapear y ejecutar formalmente CA-01–15 y E2E-A/B/C; registrar evidencia por criterio y pendientes, sin equiparar cantidad de pruebas con aceptación funcional.
+- [ ] Validar fuente real y añadir una prueba de humo reproducible que detecte rupturas del conector.
+- [ ] Completar revisión de logs/secretos, medios, retención, privacidad y navegación.
+- [ ] Revisar accesibilidad: teclado, contraste, etiquetas, estados y mensajes comprensibles sin depender del color.
+- [ ] Actualizar documentación consolidada y realizar piloto de extremo a extremo con aceptación del analista.
 
-## Decisiones pendientes y propuestas
+Salida: criterios del MVP aprobados, límites conocidos documentados y recuperación verificada. No se marca el MVP terminado mientras la recolección no respete el alcance temporal acordado.
 
-| Decisión | Propuesta del documento | Resolver antes de |
-| --- | --- | --- |
-| Fuente/conector de Meta | Elegir después de medir cobertura y validar condiciones; adaptador intercambiable | Fase 2 |
-| Interfaz local | Evaluar ergonomía de interfaz web local frente a escritorio nativo | Fase 1 |
-| Alcance de blacklist | Global, por fuente/advertiser_id, con antecedente vinculado | Fase 3 |
-| Alcance de whitelist | Por cliente o contexto | Fase 3 |
-| Alcance de brownlist | Por fuente/ad_id, con scope de perfil configurable | Fase 3 |
-| Evidencia mínima para Ataque | Acordar categorías, protocolo y evidencia verificable | Fase 3 |
-| Ventana y frecuencia | Manual en MVP; comunicar límites retrospectivos de la fuente | Fase 2 |
-| Retención y volumen | Fijar límites de medios, espacio y conservación según piloto | Fase 4 |
+Trazabilidad: RF-001–044; CA-01–15; E2E-A/B/C; RNF-01–12.
 
-Las propuestas no representan decisiones aprobadas. No se selecciona en este roadmap un proveedor ni se confirman las condiciones actuales de los servicios citados en el PDF; su comprobación pertenece a la fase de viabilidad.
+## Próximas entregas
 
-## Riesgos y mitigaciones
+1. Previsualización de evidencia multimedia local, con controles de tipo/tamaño y sin carga automática de destinos externos.
+2. Administración de listas/conflictos e intercambio masivo validado.
+3. Listado de URLs, detalle de anunciante y métricas de revisión/reportes.
+4. Completar validación del conector temporal y aceptación integral. Esta validación puede adelantarse y condiciona la declaración de cobertura y el cierre del MVP.
 
-| Riesgo | Medida y fase |
+## Decisiones y límites abiertos
+
+| Tema | Estado |
 | --- | --- |
-| Fuente incompleta, cambiante o no apta para automatización | Validación previa, contrato reemplazable, estados parciales y prueba de humo; fases 0, 2 y 5 |
-| Confundir anuncio/anunciante o clasificar por parecido de nombre | Identidad por fuente, IDs separados, conflictos explícitos y evidencia obligatoria; fases 1 y 3 |
-| Falsos positivos por mención de marca | Revisión humana, razones visibles y estado Pendiente; fase 3 |
-| Filtración de URLs sensibles | Sin envío automático; sanitización y evaluación previa de proveedores opcionales |
-| Agotamiento de disco por medios | Límites, hashes, retención y control de espacio; fases 4 y 5 |
-| Confundir reporte con retirada | Estados independientes y confirmación externa explícita; fase 4 |
+| Fuente Meta | `meta-ads-collector` 1.7.2, provisional; rango enviado pero no respetado en pruebas. Sin equivalencia validada con Biblioteca manual. |
+| Interfaz | Tkinter operativo; ergonomía y accesibilidad pendientes de aceptación completa. |
+| Listas | Negra global; blanca por alcance explícito; marrón por alcance del caso. Conflictos se detectan, sin resolución administrativa todavía. |
+| Evidencia mínima | Archivo local verificable requerido técnicamente; protocolo de atribución y categorías aún por acordar. |
+| Días de búsqueda | UI predeterminada 1; modifica el rango de esa ejecución. Las fechas no garantizan cobertura si la fuente las ignora. |
+| Identidad | Sin controles en UI por solicitud del usuario; identificador fijo de auditoría y opciones CLI conservadas. |
+| Retención y volumen | Pendientes política completa, límites de disco y optimización para mayor volumen. |
 
-## Próximo paso
+## Evolución opcional y fuera de alcance
 
-Siguiente entrega: mejorar ficha de auditoria con contenido estructurado y navegacion, e incorporar historicos/correcciones/reportes a la interfaz. Primera interfaz Tkinter de Inicio y Auditoria implementada y verificada; aceptacion ergonomica, multimedia y filtros completos pendientes.
+- [ ] Programación periódica, correlaciones explicables y priorización más rica tras el piloto.
+- [ ] Reputación externa bajo demanda, previa evaluación de licencias, cuotas y sanitización.
 
-
-### Avance de configuracion
-
-- [x] Cargar y validar perfiles/manifiestos JSON antes de consultar: campos obligatorios, pais ISO, booleanos, criterios, zona horaria y coherencia temporal.
-- [x] Ejecutar criterios habilitados de varios perfiles y resolver salida respecto al manifiesto; validar escritura antes de la consulta.
-- [ ] Completar edicion de perfiles desde UI y configuracion de todas las rutas (SQLite, evidencia, respaldos y logs).
-
-### Avance de respaldo e identidad
-
-- [x] Respaldo inicial SQLite mediante API consistente, hash, verificacion de integridad y restauracion en destino nuevo.
-- [x] Identidad local declarada del analista y prioridad de --actor en importacion, respaldo y restauracion.
-- [ ] Ampliar el respaldo a perfiles y activos de evidencia en fase 4.
-
-### Avance de ingesta conectada
-
-- [x] Guardar automaticamente cada consulta en JSON y SQLite con actor y cliente.
-- [x] Generar resumen con nuevos anuncios, descartes, cobertura y errores de fuente/persistencia.
-- [x] Conservar resultados ante fallos de fuente o cancelacion controlada y permitir reimportacion idempotente del JSON.
-- [ ] Incorporar checkpoints incrementales para recuperacion ante terminacion abrupta del proceso.
-
-### Avance de listas y cola
-
-- [x] Cargar y validar tres listas JSON, alcances, duplicados y antecedentes requeridos.
-- [x] Evaluar negra antes que marron, blanca por alcance y conflictos blanca/negra sin clasificacion automatica.
-- [x] Incluir decisiones de cruce y cola determinista en resultados y resumen.
-- [ ] Sincronizar listas con SQLite y resolver conflictos con auditoria administrativa.
-
-### Avance de decisiones humanas
-
-- [x] Abrir casos por anuncio, fuente y cliente sin duplicar el mismo contexto.
-- [x] Clasificar Spam, Ataque y Pendiente con confirmacion de identidad, evidencia requerida para Ataque y auditoria transaccional.
-- [x] Incorporar decisiones de listas SQLite al cruce de nuevas busquedas.
-- [ ] Implementar correcciones justificadas, resolucion administrativa e importacion/exportacion masiva de listas.
-
-### Avance de cola e historial de casos
-
-- [x] Consultar cola actual y casos desde SQLite, con filtro por cliente y exclusiones por clasificacion.
-- [x] Reabrir casos con confirmacion, justificacion y auditoria, conservando evidencia y antecedentes de otros casos.
-- [x] Registrar reportes manuales con fecha, actor, referencia y estado externo separado de la clasificacion.
-- [ ] Completar filtros por criterio, pais, fechas y anunciante e interfaz de dos pantallas.
-
-### Avance de interfaz local
-
-- [x] Primera interfaz Tkinter con Inicio y Auditoria, carga de manifiesto, identidad, ejecucion en segundo plano y cancelacion cooperativa.
-- [x] Mostrar cola SQLite, conflictos y detalle textual; ejecutar Spam/Ataque/Pendiente con confirmaciones.
-- [ ] Completar ficha multimedia, navegacion, historicos y acciones de correccion/reporte desde UI.
+Fuera del MVP: denuncias automáticas a Meta, bloqueo de páginas, atribución legal, navegación activa automática a sitios sospechosos, IA, reconocimiento avanzado de logos y operación distribuida. No se garantiza cobertura total ni recuperación retrospectiva no permitida por la fuente.
 
 
-### Lista manual de ejecuciones
-
-- [x] Agregar y editar pais/criterio, activar/desactivar y eliminar filas con confirmacion.
-- [x] Ejecutar solo filas habilitadas con rango definido por Dias a revisar.
-- [x] Guardar y cargar listas editables JSON, conservando estados habilitados/deshabilitados.
+Entrega del 17 de noviembre de 2026: previsualizacion y copia administrada de imagenes locales disponibles desde auditoria e historicos. Ver README para formatos, limites y exclusiones. El filtrado temporal real de Meta sigue pendiente.
 
 
-### Control de consultas lentas
-
-- [x] Aislar el proveedor en proceso terminable, con limite total e inactividad sin anuncios.
-- [x] Mostrar progreso de recepcion y filtrado; cancelar aunque el proveedor este esperando red.
-- [x] Preservar resultados parciales y registrar timeout sin presentar ausencia garantizada de anuncios.
+Entrega del 17 de noviembre de 2026: Manage lists y comandos administrativos para whitelist, desactivacion y resolucion explicita de conflictos JSON/SQLite. Nueva migracion de exclusiones y respaldo completo previo a su aplicacion. La equivalencia temporal del conector sigue pendiente.
 
 
-### Filtro temporal solicitado al servidor
+Entrega del 17 de noviembre de 2026: intercambio masivo JSON/CSV disponible en UI y CLI, con preview, proteccion CSV reversible, reimportacion idempotente, validacion de antecedentes y respaldo previo. Los conflictos rechazan el lote y no se resuelven automaticamente. Fuente temporal de Meta pendiente de validacion.
 
-- [x] Enviar startDate con min/max en todas las paginas y registrar diagnostico de solicitudes.
-- [x] Detener paginacion con error explicito si los anuncios contradicen el intervalo, sin afirmar ausencia de resultados.
-- [ ] Resolver equivalencia con Biblioteca manual: el endpoint probado ignora el rango aun con variables enviadas. No se considera validado el filtrado en servidor.
+
+Ajuste de interfaz: Ad review carga automaticamente resultados persistidos al inicio y al abrir la pesta?a, conserva prioridades y ordena por observacion reciente. Distribucion inferior corregida y comprobada a 850x600; diagnosticos extensos dentro de la ficha desplazable. No se modifica la limitacion temporal de Meta.
+
+
+Ajuste de analisis: presentacion completa de datos como campos legibles, incluyendo estructuras anidadas, campos adicionales de fuente y ejecuciones relacionadas. All information permite explorar y copiar valores completos sin mostrar la estructura JSON; historicos y diagnosticos usan la misma presentacion.

@@ -89,6 +89,37 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(self.app.days.get(),'3')
         self.assertEqual(self.app.search_rows.queries(3)[0]['country'],'co')
 
+    def test_saved_results_load_on_reopen_with_newest_first(self):
+        from brand_threat_monitor.storage.repositories import import_result
+        lists=self.workspace/'lists'; lists.mkdir()
+        project=Path(__file__).resolve().parents[2]
+        for p in (project/'lists').glob('*.json'):
+            (lists/p.name).write_bytes(p.read_bytes())
+        with connect(self.app.database) as db:
+            initialize(db)
+            for run,ad,stamp in [('old','ad-old','2026-11-15T12:00:00+00:00'),('new','ad-new','2026-11-17T12:00:00+00:00')]:
+                import_result(db,{'schema_version':'1.0','run_id':run,'source':'fixture','started_at':stamp,
+                    'status':'partial','coverage':'partial','country':'CO','query':'test',
+                    'ads':[{'source':'fixture','ad_id':ad,'body':ad}],
+                    'observations':[{'source':'fixture','ad_id':ad,'run_id':run,'observed_at':stamp}]},actor='tester')
+        self.app.close(); self.root=tk.Tk(); self.root.withdraw()
+        with patch('brand_threat_monitor.ui.app.collect') as collector:
+            self.app=Application(self.root,self.workspace)
+            self.assertEqual(len(self.app.rows),2)
+            self.assertEqual(self.app.selected['ad_id'],'ad-new')
+            collector.assert_not_called()
+        self.app.tabs.select(self.app.audit); self.root.update()
+        self.assertEqual(self.app.selected['ad_id'],'ad-new')
+
+    def test_review_footer_and_detail_fit_minimum_window(self):
+        self.root.geometry('850x600')
+        self.app.tabs.select(self.app.audit)
+        self.root.deiconify(); self.root.update()
+        self.assertGreaterEqual(self.app.detail.winfo_height(),40)
+        self.assertLessEqual(self.app.review_notice.winfo_y()+self.app.review_notice.winfo_height(),self.app.audit.winfo_height())
+        self.assertTrue(all(button.winfo_ismapped() for button in self.app.decision_buttons))
+        self.root.withdraw()
+
     def test_queue_selection_displays_payload_without_opening_url(self):
         lists=self.workspace/'lists'; lists.mkdir()
         project=Path(__file__).resolve().parents[2]

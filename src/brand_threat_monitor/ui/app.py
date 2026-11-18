@@ -18,6 +18,13 @@ from ..lists.service import load_lists, merge_database_lists
 from ..review.queue import database_queue, evaluate_result
 from ..review.service import open_case, decide
 from ..storage.database import connect, initialize
+from .audit import format_ad
+from .history import HistoryWindow
+from .filters import FilterBar
+from .evidence import EvidenceWindow
+from .lists import ListsWindow
+from .information import format_information, InformationWindow
+from ..review.service import case_detail
 
 
 REASONS = {
@@ -43,6 +50,7 @@ class Application(ttk.Frame):
         self.search_list_file=self.root_dir/'data/search_list.json'
         self.rows=[]
         self.selected=None
+        self.analysis_information={}
         self.pack(fill='both',expand=True)
         master.title('Brand Threat Monitor')
         master.geometry('1150x780')
@@ -55,16 +63,22 @@ class Application(ttk.Frame):
         self.tabs.add(self.home,text='Search setup'); self.tabs.add(self.audit,text='Ad review')
         self.build_home(); self.build_audit()
         self.status=tk.StringVar(value='Ready. Add searches manually or load a JSON list.')
-        ttk.Label(self,textvariable=self.status,wraplength=1050).pack(fill='x',pady=(8,0))
+        self.status_label=tk.Label(self,textvariable=self.status,wraplength=1050,height=2,anchor='w',justify='left')
+        self.status_label.pack(side='bottom',fill='x',pady=(6,0),before=self.tabs)
+        self.bind('<Configure>',lambda event:self.status_label.configure(wraplength=max(200,event.width-24)))
         self.timer=self.after(150,self.poll)
         if self.search_list_file.exists():
             self.guard(lambda:self.load_path(self.search_list_file))
         self.days.trace_add('write',lambda *args:self.save_days_change())
+        self.tabs.bind('<<NotebookTabChanged>>',self.review_tab_changed)
+        self.auto_refresh()
 
     def build_home(self):
         bar=ttk.Frame(self.home); bar.pack(fill='x')
         self.load_button=ttk.Button(bar,text='Load search list',command=self.load)
         self.load_button.pack(side='left')
+        ttk.Button(bar,text='Manage lists',command=lambda:self.guard(self.open_lists)).pack(side='right',padx=5)
+        ttk.Button(bar,text='History',command=lambda:self.guard(self.open_history)).pack(side='right')
         ttk.Button(bar,text='Export search list',command=lambda:self.guard(self.save_search_list)).pack(side='left',padx=8)
         editor=ttk.Frame(self.home); editor.pack(fill='x',pady=(10,0))
         self.row_enabled=tk.BooleanVar(value=True)
@@ -106,25 +120,75 @@ class Application(ttk.Frame):
         self.log.pack(fill='both',expand=True,pady=10)
 
     def build_audit(self):
-        bar=ttk.Frame(self.audit); bar.pack(fill='x')
+        self.audit.columnconfigure(0,weight=1)
+        self.audit.rowconfigure(3,weight=1,minsize=45)
+        self.audit.rowconfigure(5,weight=3,minsize=50)
+        bar=ttk.Frame(self.audit); bar.grid(row=0,column=0,sticky='ew')
         ttk.Button(bar,text='Refresh queue',command=lambda:self.guard(self.refresh)).pack(side='left')
         ttk.Label(bar,text='  Client ID (leave blank for all):').pack(side='left')
         self.client_filter=tk.StringVar()
         ttk.Entry(bar,textvariable=self.client_filter,width=24).pack(side='left',padx=8)
-        self.queue_table=ttk.Treeview(self.audit,columns=('priority','client','ad','advertiser','reason'),show='headings',height=7)
-        for col,label,width in [('priority','Priority',70),('client','Client',150),('ad','Ad',160),('advertiser','Advertiser',160),('reason','Reason',400)]:
-            self.queue_table.heading(col,text=label); self.queue_table.column(col,width=width)
-        self.queue_table.pack(fill='x',pady=10)
+        self.queue_filters=FilterBar(self.audit,lambda:self.guard(self.refresh))
+        self.queue_filters.grid(row=1,column=0,sticky='ew',pady=(5,0))
+        self.review_summary=tk.StringVar(value='Saved results load automatically. Dates refer to observations in Colombia.')
+        self.review_summary_label=ttk.Label(self.audit,textvariable=self.review_summary,wraplength=1000)
+        self.review_summary_label.grid(row=2,column=0,sticky='ew',pady=(2,4))
+        table_frame=ttk.Frame(self.audit); table_frame.grid(row=3,column=0,sticky='nsew')
+        table_frame.columnconfigure(0,weight=1); table_frame.rowconfigure(0,weight=1)
+        self.queue_table=ttk.Treeview(table_frame,columns=('priority','client','ad','advertiser','reason'),show='headings',height=4)
+        for col,label,width in [('priority','Priority',65),('client','Client',130),('ad','Ad',150),('advertiser','Advertiser',150),('reason','Reason',400)]:
+            self.queue_table.heading(col,text=label); self.queue_table.column(col,width=width,minwidth=55)
+        self.queue_table.grid(row=0,column=0,sticky='nsew')
+        queue_y=ttk.Scrollbar(table_frame,orient='vertical',command=self.queue_table.yview)
+        queue_y.grid(row=0,column=1,sticky='ns')
+        queue_x=ttk.Scrollbar(table_frame,orient='horizontal',command=self.queue_table.xview)
+        queue_x.grid(row=1,column=0,sticky='ew')
+        self.queue_table.configure(yscrollcommand=queue_y.set,xscrollcommand=queue_x.set)
         self.queue_table.bind('<<TreeviewSelect>>',lambda event:self.guard(self.show_selected))
-        self.detail=tk.Text(self.audit,height=12,wrap='word',state='disabled')
-        self.detail.pack(fill='both',expand=True)
+        navigation=ttk.Frame(self.audit); navigation.grid(row=4,column=0,sticky='ew',pady=5)
+        ttk.Button(navigation,text='Previous',command=lambda:self.guard(lambda:self.navigate(-1))).pack(side='left')
+        ttk.Button(navigation,text='Next',command=lambda:self.guard(lambda:self.navigate(1))).pack(side='left',padx=6)
+        self.position=tk.StringVar(value='No ads selected')
+        ttk.Label(navigation,textvariable=self.position).pack(side='left',padx=10)
+        ttk.Button(navigation,text='All information',command=self.open_all_information).pack(side='left',padx=5)
+        ttk.Button(navigation,text='History / corrections / reports',command=lambda:self.guard(self.open_history)).pack(side='right')
+        detail_frame=ttk.Frame(self.audit); detail_frame.grid(row=5,column=0,sticky='nsew')
+        detail_frame.columnconfigure(0,weight=1); detail_frame.rowconfigure(0,weight=1)
+        self.detail=tk.Text(detail_frame,height=4,wrap='word',state='disabled')
+        scrollbar=ttk.Scrollbar(detail_frame,command=self.detail.yview)
+        scrollbar.grid(row=0,column=1,sticky='ns'); self.detail.grid(row=0,column=0,sticky='nsew')
+        self.detail.configure(yscrollcommand=scrollbar.set)
         self.decision_buttons=[]
-        actions=ttk.Frame(self.audit); actions.pack(fill='x',pady=10)
-        for label,decision in [('Spam (this ad)','spam'),('Flag advertiser','attack'),('Keep pending','pending')]:
-            button=ttk.Button(actions,text=label,command=lambda d=decision:self.guard(lambda:self.classify(d)))
-            button.pack(side='left',padx=4); self.decision_buttons.append(button)
-        ttk.Button(actions,text='Open in Meta Ad Library',command=self.open_library).pack(side='left',padx=10)
-        ttk.Label(self.audit,text='Conflicts require administrative review. Reports to Meta are submitted manually.',wraplength=1000).pack(anchor='w')
+        self.review_actions=ttk.Frame(self.audit); self.review_actions.grid(row=6,column=0,sticky='ew',pady=(6,3))
+        for column,(label,decision) in enumerate([('Spam (this ad)','spam'),('Flag advertiser','attack'),('Keep pending','pending')]):
+            button=ttk.Button(self.review_actions,text=label,command=lambda d=decision:self.guard(lambda:self.classify(d)))
+            button.grid(row=0,column=column,sticky='ew',padx=3,pady=2)
+            self.review_actions.columnconfigure(column,weight=1)
+            self.decision_buttons.append(button)
+        ttk.Button(self.review_actions,text='Local evidence',command=lambda:self.guard(self.open_evidence)).grid(row=1,column=0,sticky='ew',padx=3,pady=2)
+        ttk.Button(self.review_actions,text='Open in Meta Ad Library',command=self.open_library).grid(row=1,column=1,columnspan=2,sticky='ew',padx=3,pady=2)
+        self.review_notice=ttk.Label(self.audit,text='Conflicts require administrative review. Reports to Meta are submitted manually.',wraplength=1000)
+        self.review_notice.grid(row=7,column=0,sticky='ew',pady=(2,0))
+        self.audit.bind('<Configure>',lambda event:self.resize_review(event.width))
+
+    def resize_review(self,width):
+        self.review_notice.configure(wraplength=max(200,width-24))
+        self.review_summary_label.configure(wraplength=max(200,width-24))
+
+    def auto_refresh(self):
+        if self.busy: return
+        if not self.database.exists():
+            self.review_summary.set('No saved results yet. Run a search from Search setup.')
+            self.set_detail('No saved results yet. Run a search to populate Ad review.')
+            return
+        try:
+            self.refresh()
+        except Exception as exc:
+            self.review_summary.set('Unable to load saved results. Use Refresh queue to retry.')
+            self.set_detail(str(exc))
+
+    def review_tab_changed(self,event=None):
+        if self.tabs.select()==str(self.audit): self.auto_refresh()
 
     def guard(self, action):
         try: return action()
@@ -303,29 +367,87 @@ class Application(ttk.Frame):
         else: self.progress.stop()
 
     def refresh(self):
+        old=self.selected
+        old_index=next((i for i,row in enumerate(self.rows) if row is old),0)
         with connect(self.database) as db:
             initialize(db)
-            result=database_queue(db,load_lists(self.lists_dir),client_id=self.client_filter.get().strip() or None)
+            result=database_queue(db,load_lists(self.lists_dir),client_id=self.client_filter.get().strip() or None,filters=self.queue_filters.get())
+            last_run=db.execute('SELECT started_at,payload_json FROM runs ORDER BY started_at DESC,run_id DESC LIMIT 1').fetchone()
         self.rows=result['queue']+result['conflicts']; self.selected=None
         for row in self.rows:
             row['reason']=REASONS.get(row['state'],row['reason'])
         self.queue_table.delete(*self.queue_table.get_children())
         for index,row in enumerate(self.rows):
             self.queue_table.insert('','end',iid=str(index),values=(row['priority'] or 'Conflict',row['client_id'] or 'Global',row['ad_id'],row['advertiser_id'] or 'Not available',row['reason']))
+        self.review_summary.set(f'{len(result["queue"])} pending; {len(result["conflicts"])} conflicts. Newest observations first within each priority. Dates are inclusive, Colombia time.')
+        if not self.rows and last_run is not None:
+            payload=json.loads(last_run['payload_json'])
+            errors=payload.get('errors',[])
+            explanation=' No accepted ads in the last run.' if not payload.get('ads') else ' Cases may already be reviewed, excluded by lists or hidden by filters.'
+            if errors: explanation+=' Source error: '+str(errors[0].get('type','Unknown source error'))
+            self.review_summary.set(f'No pending ads match the current filters. Last saved run: {last_run["started_at"]}.'+explanation)
         self.set_detail('Select an ad to review its evidence.\n'+f'{len(result["queue"])} to review; {len(result["conflicts"])} conflicts.')
+        if not self.rows and last_run is not None:
+            self.set_information({'Last saved search execution':payload,'Review queue note':'Only accepted, unreviewed ads appear here. Records excluded by date remain diagnostics, not review cases.'})
+        self.position.set('No ads selected')
+        if self.rows:
+            preserved=next((i for i,row in enumerate(self.rows) if old and
+                (row['source'],row['ad_id'],row['client_id'])==(old['source'],old['ad_id'],old['client_id'])),
+                min(old_index,len(self.rows)-1))
+            self.queue_table.selection_set(str(preserved)); self.queue_table.see(str(preserved))
+            self.show_selected()
 
     def set_detail(self,text):
+        self.analysis_information={}
         self.detail.configure(state='normal'); self.detail.delete('1.0','end'); self.detail.insert('1.0',text); self.detail.configure(state='disabled')
+
+    def set_information(self,data):
+        self.set_detail(format_information(data))
+        self.analysis_information=data
+
+    def open_all_information(self):
+        if not self.analysis_information: return
+        window=InformationWindow(self,self.analysis_information)
+        window.transient(self.master)
 
     def show_selected(self):
         selected=self.queue_table.selection()
         if not selected: return
         row=self.rows[int(selected[0])]; self.selected=row
+        self.position.set(f'Ad {int(selected[0])+1} of {len(self.rows)}')
         with connect(self.database) as db:
             ad=db.execute('SELECT * FROM ads WHERE source=? AND ad_id=?',(row['source'],row['ad_id'])).fetchone()
             payload=json.loads(ad['payload_json'])
-            cases=[dict(c) for c in db.execute('SELECT * FROM review_cases WHERE source=? AND ad_id=?',(row['source'],row['ad_id']))]
-        self.set_detail(f'Ad: {row["ad_id"]}\nAdvertiser: {row["advertiser_id"] or "Not available"}\nReason: {row["reason"]}\nFirst observed: {ad["first_observed_at"]}\nLast observed: {ad["last_observed_at"]}\n\nCollected content (missing fields = unavailable):\n'+json.dumps(payload,ensure_ascii=False,indent=2)+'\n\nPrevious cases:\n'+json.dumps(cases,ensure_ascii=False,indent=2))
+            cases=[case_detail(db,c['case_id']) for c in db.execute('SELECT case_id FROM review_cases WHERE source=? AND ad_id=?',(row['source'],row['ad_id'])).fetchall()]
+            run_rows=db.execute('''SELECT DISTINCT r.run_id,r.started_at,r.payload_json FROM runs r
+                JOIN ad_observations o ON o.run_id=r.run_id WHERE o.source=? AND o.ad_id=?
+                ORDER BY r.started_at DESC,r.run_id DESC''',(row['source'],row['ad_id'])).fetchall()
+            runs=[json.loads(run['payload_json']) for run in run_rows]
+        ad_metadata=dict(ad); ad_metadata.pop('payload_json',None)
+        self.set_information({'Ad identification and observations':ad_metadata,
+                              'Ad content and all source fields':payload,
+                              'Current queue evaluation':row,
+                              'Review cases, evidence and history':cases,
+                              'Related search results':runs})
+
+
+    def navigate(self,direction):
+        if not self.rows: return
+        selection=self.queue_table.selection()
+        current=int(selection[0]) if selection else 0
+        index=max(0,min(len(self.rows)-1,current+direction))
+        self.queue_table.selection_set(str(index)); self.queue_table.see(str(index)); self.show_selected()
+
+    def open_lists(self):
+        if self.busy: raise ValueError('Wait for the search to finish before changing lists')
+        window=ListsWindow(self,self.database,self.lists_dir,on_change=lambda:self.guard(self.refresh))
+        window.transient(self.master); window.grab_set()
+
+    def open_history(self):
+        if self.busy: raise ValueError('Wait for the search to finish before editing case history')
+        window=HistoryWindow(self,self.database,on_change=lambda:self.guard(self.refresh))
+        window.transient(self.master); window.grab_set()
+
 
     def classify(self,decision):
         if self.busy: raise ValueError('Wait for the search to finish')
@@ -348,8 +470,18 @@ class Application(ttk.Frame):
         with connect(self.database) as db:
             initialize(db)
             case_id=row.get('case_id') or open_case(db,row['source'],row['ad_id'],actor=actor,client_id=row['client_id'])['case_id']
-            decide(db,case_id,decision,actor=actor,reason=reason,confirm_id=confirmation,evidence_file=evidence,lists=load_lists(self.lists_dir))
+            decide(db,case_id,decision,actor=actor,reason=reason,confirm_id=confirmation,evidence_file=evidence,lists=merge_database_lists(db,load_lists(self.lists_dir)))
         self.refresh(); self.status.set(f'Decision saved: {decision}')
+
+    def open_evidence(self):
+        if self.busy: raise ValueError('Wait for the search to finish')
+        row=self.selected
+        if row is None: raise ValueError('Select an ad first')
+        if row['state']=='list_conflict': raise ValueError('Resolve the list conflict before creating a review case')
+        with connect(self.database) as db:
+            case_id=row.get('case_id') or open_case(db,row['source'],row['ad_id'],actor='local_operator',client_id=row['client_id'])['case_id']
+        window=EvidenceWindow(self,self.database,case_id,self.root_dir/'data/evidence')
+        window.transient(self.master); window.grab_set()
 
     def open_library(self):
         if self.selected:

@@ -17,13 +17,22 @@ def evaluate_result(result, snapshot):
             'counts':counts}
 
 
-def database_queue(db, snapshot, *, client_id=None):
+def database_queue(db, snapshot, *, client_id=None, filters=None):
     """Evalua estado actual de listas y omite casos ya clasificados."""
     from ..lists.service import merge_database_lists
     effective=merge_database_lists(db,snapshot)
-    rows=db.execute('''SELECT DISTINCT a.source,a.ad_id,a.advertiser_id,q.client_id
-        FROM ads a JOIN observation_queries o ON a.source=o.source AND a.ad_id=o.ad_id
-        JOIN run_queries q ON q.query_id=o.query_id''').fetchall()
+    from ..history.filters import Filters
+    from ..history.service import observation_contexts,matches_context
+    filters=filters or Filters()
+    contexts=observation_contexts(db)
+    unique={}
+    for context in contexts:
+        if matches_context(context,filters):
+            key=(context['source'],context['ad_id'],context['client_id'])
+            previous=unique.get(key)
+            if previous is None or context['observed_at']>previous['observed_at']:
+                unique[key]=context
+    rows=list(unique.values())
     queue,conflicts=[],[]
     for row in rows:
         context=row['client_id']
@@ -33,9 +42,12 @@ def database_queue(db, snapshot, *, client_id=None):
         if any(c['decision'] in {'spam','attack'} for c in cases): continue
         decision=evaluate(dict(row),context,effective)
         decision['client_id']=context
+        decision['last_observed_at']=row['observed_at']
         exact=next((c for c in cases if c['client_id']==context),cases[0] if cases else None)
         decision['case_id']=exact['case_id'] if exact else None
         if decision['state']=='list_conflict': conflicts.append(decision)
         elif decision['priority'] is not None: queue.append(decision)
-    queue.sort(key=lambda d:(d['priority'],d['source'],d['ad_id'],d['client_id'] or ''))
+    queue.sort(key=lambda d:(d['source'],d['ad_id'],d['client_id'] or ''))
+    queue.sort(key=lambda d:d['last_observed_at'],reverse=True)
+    queue.sort(key=lambda d:d['priority'])
     return {'queue':queue,'conflicts':conflicts,'lists_fingerprint':effective.fingerprint}

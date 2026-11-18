@@ -1,0 +1,1 @@
+﻿CREATE TABLE list_imports (import_id TEXT PRIMARY KEY, document_sha256 TEXT NOT NULL UNIQUE, source_file TEXT NOT NULL, source_format TEXT NOT NULL, imported_at TEXT NOT NULL, actor TEXT NOT NULL, reason TEXT NOT NULL, backup_path TEXT NOT NULL, counts_json TEXT NOT NULL);

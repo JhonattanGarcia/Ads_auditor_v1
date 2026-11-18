@@ -1,4 +1,4 @@
-﻿"""Validacion y cruce determinista de listas JSON con alcance explicito."""
+"""Validacion y cruce determinista de listas JSON con alcance explicito."""
 
 import hashlib
 import json
@@ -107,13 +107,18 @@ def merge_database_lists(db, snapshot):
     """Anexa decisiones SQLite sin eliminar las listas JSON de entrada."""
     import copy
     documents=copy.deepcopy(snapshot.documents)
+    for exclusion in db.execute('SELECT * FROM list_exclusions'):
+        kind=exclusion['list_type']; key=KINDS[kind]
+        documents[kind]['entries'][:]=[entry for entry in documents[kind]['entries']
+            if not (entry['source']==exclusion['source'] and entry[key]==exclusion['entity_id']
+                    and ('global' if entry['scope']['type']=='global' else 'client:'+entry['scope']['client_id'])==exclusion['scope'])]
     for table in ['advertiser_lists','brownlist']:
         for row in db.execute(f'SELECT * FROM {table} WHERE active=1'):
             scope={'type':'global'} if row['scope']=='global' else {'type':'client','client_id':row['scope'].removeprefix('client:')}
             kind='brownlist' if table=='brownlist' else {'white':'whitelist','black':'blacklist'}[row['list_type']]
             key=KINDS[kind]
             entry={'source':row['source'],key:row[key],'scope':scope,'reason':row['reason'],
-                   'reviewer':row['reviewer'],'created_at':row['created_at'],'active':True}
+                   'reviewer':row['reviewer'],'created_at':row['created_at'],'active':True,'db_entry_id':row['entry_id']}
             if kind=='blacklist':
                 entry['case_id']=row['case_id']
                 entry['evidence_refs']=[e['local_path'] or e['original_url'] or e['evidence_id']

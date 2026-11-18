@@ -1,0 +1,1 @@
+﻿CREATE TABLE list_exclusions (source TEXT NOT NULL, list_type TEXT NOT NULL CHECK(list_type IN ('whitelist','blacklist','brownlist')), entity_id TEXT NOT NULL, scope TEXT NOT NULL, reason TEXT NOT NULL, reviewer TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(source,list_type,entity_id,scope));

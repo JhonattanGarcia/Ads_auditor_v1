@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "type": "list_bundle",
+  "lists": {
+    "whitelist": {
+      "schema_version": "1.0",
+      "list_type": "whitelist",
+      "identity_fields": [
+        "source",
+        "advertiser_id"
+      ],
+      "entries": []
+    },
+    "blacklist": {
+      "schema_version": "1.0",
+      "list_type": "blacklist",
+      "identity_fields": [
+        "source",
+        "advertiser_id"
+      ],
+      "entries": []
+    },
+    "brownlist": {
+      "schema_version": "1.0",
+      "list_type": "brownlist",
+      "identity_fields": [
+        "source",
+        "ad_id"
+      ],
+      "entries": []
+    }
+  }
+}

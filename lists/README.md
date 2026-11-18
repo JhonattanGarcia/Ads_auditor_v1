@@ -36,3 +36,8 @@ Se rechazan duplicados activos dentro del mismo tipo, fuente, identidad y alcanc
 El ejecutor lee estas listas una vez antes de consultar. --lists-dir permite otra carpeta con los tres archivos obligatorios. No se aceptan archivos ausentes como listas vacias. Su huella SHA-256 queda en list_evaluation y en el resumen para identificar la configuracion usada. Los archivos JSON originales de listas no se copian a SQLite: alli se conserva el resultado de la evaluacion dentro del payload de la corrida.
 
 results.json incluye list_evaluation.decisions, queue, conflicts y counts. run_summary.json expone review_queue, list_conflicts y conteos efectivos (categorias exclusivas por precedencia). pending cuenta la cola total, incluidos antecedentes negros. reported sigue null hasta implementar reportes. Los anuncios blancos y marrones se conservan en resultados y observaciones aunque no se incluyan en la cola.
+
+
+## Administracion local
+
+Manage lists y los comandos list-entries, authorize-advertiser, deactivate-entry y resolve-list-conflict permiten mantener las listas efectivas con auditoria. Las exclusiones de entradas JSON se guardan en list_exclusions y se aplican antes del cruce; el archivo original permanece intacto. Las decisiones nuevas de SQLite pueden reactivar el mismo tipo/identidad/alcance. Ver README principal para confirmaciones y efecto de entradas globales.

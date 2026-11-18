@@ -137,7 +137,7 @@ def reopen_case(db, case_id, *, actor, reason, confirm_case_id):
     return after
 
 
-def list_cases(db, *, client_id=None, status=None):
+def list_cases(db, *, client_id=None, status=None, filters=None):
     clauses, values=[],[]
     if client_id is not None:
         clauses.append('client_id=?'); values.append(client_id)
@@ -145,7 +145,8 @@ def list_cases(db, *, client_id=None, status=None):
         clauses.append('status=?'); values.append(status)
     query='SELECT * FROM review_cases'
     if clauses: query+=' WHERE '+' AND '.join(clauses)
-    return [dict(row) for row in db.execute(query+' ORDER BY case_id',values)]
+    from ..history.service import filter_cases
+    return filter_cases(db,[dict(row) for row in db.execute(query+' ORDER BY case_id',values)],filters)
 
 
 def case_detail(db, case_id):
