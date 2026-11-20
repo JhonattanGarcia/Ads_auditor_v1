@@ -158,5 +158,86 @@ class DesktopTests(unittest.TestCase):
                 self.assertEqual(decide.call_args.args[2],decision)
                 self.assertEqual(decide.call_args.kwargs['actor'],'local_operator')
 
+    def test_repeat_validation_and_stop(self):
+        import time
+        self.app.repeat_hours.set('1')
+        self.app.repeat_enabled.set(True)
+        self.app.repeat_changed()
+        self.assertAlmostEqual(self.app.repeat_due-time.monotonic(),3600,delta=2)
+        self.app.stop_searches()
+        self.assertIsNone(self.app.repeat_due)
+        self.assertFalse(self.app.repeat_enabled.get())
+        for hours in (0,0.5,0.99,float('nan'),float('inf'),True,8761):
+            with self.assertRaises(ValueError):
+                self.app.validate_repeat({'enabled':True,'hours':hours})
+
+    def test_repeat_settings_restore_and_busy_batch_does_not_overlap(self):
+        self.app.repeat_hours.set('2')
+        self.app.repeat_enabled.set(True); self.app.repeat_changed()
+        saved=self.app.search_list_file
+        document=json.loads(saved.read_text(encoding='utf-8'))
+        self.assertEqual(document['repeat'],{'enabled':True,'hours':2.0})
+        self.app.repeat_enabled.set(False)
+        self.app.load_path(saved)
+        self.assertTrue(self.app.repeat_enabled.get())
+        self.assertIsNotNone(self.app.repeat_due)
+        self.app.busy=True
+        self.app.schedule_repeat()
+        self.assertIsNone(self.app.repeat_due)
+        self.app.busy=False
+        self.app.schedule_repeat()
+        self.assertIsNotNone(self.app.repeat_due)
+
+    def test_due_repeat_starts_once(self):
+        import time
+        self.app.repeat_due=time.monotonic()-1
+        self.app.after_cancel(self.app.timer)
+        with patch.object(self.app,'start',side_effect=lambda:setattr(self.app,'busy',True)) as start:
+            self.app.poll()
+            self.assertEqual(start.call_count,1)
+            self.assertIsNone(self.app.repeat_due)
+        self.app.busy=False
+
+    def test_repeat_runs_at_frequency_and_rearms_after_batch_completion(self):
+        project=Path(__file__).resolve().parents[2]
+        self.app.search_rows.add('CO','Sample',True)
+        lists=self.workspace/'lists'; lists.mkdir()
+        for file in (project/'lists').glob('*.json'):
+            (lists/file.name).write_bytes(file.read_bytes())
+        self.app.repeat_hours.set('1')
+        self.app.repeat_enabled.set(True)
+        self.app.after_cancel(self.app.timer)
+        def poll_at(stamp):
+            with patch('brand_threat_monitor.ui.app.time.monotonic',return_value=stamp):
+                self.app.poll()
+            self.app.after_cancel(self.app.timer)
+        try:
+            with patch('brand_threat_monitor.ui.app.time.monotonic',return_value=100):
+                self.app.repeat_changed()
+            self.assertEqual(self.app.repeat_due,3700)
+            with patch('brand_threat_monitor.ui.app.threading.Thread') as worker, patch.object(self.app,'refresh'):
+                poll_at(3699)
+                worker.assert_not_called()
+                poll_at(3700)
+                self.assertEqual(worker.call_count,1)
+                self.assertTrue(self.app.busy)
+                poll_at(7300)
+                self.assertEqual(worker.call_count,1)
+                self.app.events.put(('done',None))
+                poll_at(7400)
+                self.assertEqual(self.app.repeat_due,11000)
+                self.assertIn('Next run:',self.app.status.get())
+                poll_at(10999)
+                self.assertEqual(worker.call_count,1)
+                poll_at(11000)
+                self.assertEqual(worker.call_count,2)
+                queries,output,actor,snapshot,limits=worker.call_args.kwargs['args']
+                self.assertEqual(queries[0]['criteria'][0]['query'],'Sample')
+                self.assertEqual(limits['max_pages'],20)
+        finally:
+            self.app.busy=False
+            self.app.set_busy(False)
+            self.app.timer=self.app.after(150,self.app.poll)
+
 
 if __name__=='__main__': unittest.main()

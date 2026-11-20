@@ -1,7 +1,9 @@
 """Interfaz de escritorio local con Tkinter y consultas en segundo plano."""
 
 import json
-from datetime import datetime
+import math
+import time
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import queue
 import threading
@@ -14,6 +16,8 @@ from urllib.parse import urlencode
 from ..config.limits import DEFAULT_LIMITS, BOUNDS, validate_limits
 from ..config.profiles import load_manifest, SearchPlan, validate_profile, read_json
 from .search_rows import SearchRows
+from .window_frame import install_native_frame
+from .theme import apply_theme, IVORY, SECONDARY, TEAL, PETROLEUM, ON_DARK_SECONDARY, font_family
 from ..ingestion.service import write_json
 from ..ingestion.collector import collect
 from ..ingestion.service import persist_result
@@ -50,12 +54,14 @@ def ad_start(row,display_timezone='America/Bogota'):
 
 class Application(ttk.Frame):
     def __init__(self, master, root_dir):
-        super().__init__(master, padding=12)
+        self.theme=apply_theme(master)
+        super().__init__(master, padding=12,style='Shell.TFrame')
         self.root_dir=Path(root_dir).resolve()
         self.database=self.root_dir/'data/database/monitor.sqlite3'
         self.lists_dir=self.root_dir/'lists'
         self.events=queue.Queue()
         self.cancel=threading.Event()
+        self.repeat_due=None
         self.busy=False
         self.plan=SearchPlan([],self.root_dir/"data/results")
         self.search_rows=SearchRows()
@@ -64,18 +70,19 @@ class Application(ttk.Frame):
         self.selected=None
         self.analysis_information={}
         self.pack(fill='both',expand=True)
-        master.title('Brand Threat Monitor')
+        master.title('Ad monitor')
+        self.window_icon=tk.PhotoImage(master=master,width=32,height=32)
+        master.iconphoto(True,self.window_icon)
+        install_native_frame(master)
         master.geometry('1150x780')
         master.minsize(850,600)
         master.protocol('WM_DELETE_WINDOW',self.close)
-        ttk.Label(self,text='Brand Threat Monitor',font=('Segoe UI',20,'bold')).pack(anchor='w')
-        ttk.Label(self,text='Local monitoring and human review of Meta ads').pack(anchor='w',pady=(0,10))
         self.tabs=ttk.Notebook(self); self.tabs.pack(fill='both',expand=True)
         self.home=ttk.Frame(self.tabs,padding=12); self.audit=ttk.Frame(self.tabs,padding=12)
         self.tabs.add(self.home,text='Search setup'); self.tabs.add(self.audit,text='Ad review')
         self.build_home(); self.build_audit()
         self.status=tk.StringVar(value='Ready. Add searches manually or load a JSON list.')
-        self.status_label=tk.Label(self,textvariable=self.status,wraplength=1050,height=2,anchor='w',justify='left')
+        self.status_label=tk.Label(self,bg=PETROLEUM,fg=ON_DARK_SECONDARY,font=(font_family(self,'mono'),9),textvariable=self.status,wraplength=1050,height=2,anchor='w',justify='left')
         self.status_label.pack(side='bottom',fill='x',pady=(6,0),before=self.tabs)
         self.bind('<Configure>',lambda event:self.status_label.configure(wraplength=max(200,event.width-24)))
         self.timer=self.after(150,self.poll)
@@ -104,7 +111,7 @@ class Application(ttk.Frame):
         self.row_criterion=tk.StringVar()
         self.criterion_entry=ttk.Entry(editor,textvariable=self.row_criterion,width=32)
         self.criterion_entry.pack(side='left',fill='x',expand=True)
-        self.add_button=ttk.Button(editor,text='Add',command=lambda:self.guard(self.add_search))
+        self.add_button=ttk.Button(editor,text='Add',style='Primary.TButton',command=lambda:self.guard(self.add_search))
         self.add_button.pack(side='left',padx=5)
         self.update_button=ttk.Button(editor,text='Update selected search',command=lambda:self.guard(self.update_search))
         self.update_button.pack(side='left')
@@ -122,18 +129,26 @@ class Application(ttk.Frame):
         ttk.Label(actions,text='Days to review:').pack(side='left')
         self.days=tk.StringVar(value='1')
         ttk.Spinbox(actions,from_=1,to=90,textvariable=self.days,width=6).pack(side='left',padx=8)
-        self.run_button=ttk.Button(actions,text='Run searches',command=self.start)
+        self.run_button=ttk.Button(actions,text='Run searches',style='Primary.TButton',command=self.start)
         self.run_button.pack(side='left',padx=5)
-        self.stop_button=ttk.Button(actions,text='Stop',command=self.cancel.set,state='disabled')
+        self.stop_button=ttk.Button(actions,text='Stop',command=self.stop_searches,state='disabled')
         self.stop_button.pack(side='left')
         limits_bar=ttk.LabelFrame(self.home,text='Collection limits (per search)',padding=5)
         limits_bar.pack(fill='x',pady=(5,0))
         self.limit_values={}
-        for column,(key,label) in enumerate([('max_scan','Max ads'),('max_pages','Max pages'),('max_duration','Total seconds'),('idle_timeout','Idle seconds')]):
+        for column,(key,label) in enumerate([('max_scan','Max ads'),('max_pages','Max pages'),('max_duration','Total (s)'),('idle_timeout','Idle (s)')]):
             ttk.Label(limits_bar,text=label).grid(row=0,column=column*2,padx=3)
             value=tk.StringVar(value=str(DEFAULT_LIMITS[key])); self.limit_values[key]=value
-            ttk.Spinbox(limits_bar,from_=BOUNDS[key][0],to=BOUNDS[key][1],textvariable=value,width=7).grid(row=0,column=column*2+1,padx=3)
+            ttk.Entry(limits_bar,textvariable=value,width=5).grid(row=0,column=column*2+1,padx=3)
             value.trace_add('write',lambda *args:self.save_limits_change())
+        self.repeat_enabled=tk.BooleanVar(value=False)
+        self.repeat_hours=tk.StringVar(value='24')
+        repeat_bar=ttk.Frame(limits_bar); repeat_bar.grid(row=0,column=8,sticky='w',padx=(8,0))
+        ttk.Checkbutton(repeat_bar,text='Repeat automatically',variable=self.repeat_enabled,command=self.repeat_changed).pack(side='left')
+        ttk.Label(repeat_bar,text='Every (h):').pack(side='left',padx=(10,4))
+        self.repeat_entry=ttk.Entry(repeat_bar,textvariable=self.repeat_hours,width=5)
+        self.repeat_entry.pack(side='left')
+        self.repeat_hours.trace_add('write',lambda *args:self.repeat_changed())
         self.progress=ttk.Progressbar(self.home,mode='indeterminate'); self.progress.pack(fill='x',pady=12)
         ttk.Label(self.home,text='The range includes today and the preceding days; 1 = today in Colombia (UTC-05:00). Source ad timestamps are UTC (+00:00), converted to Colombia time for filtering. Dates are applied locally after collection; accepted ads are sorted newest first.\nCoverage is partial and ads may be missed. Stop interrupts the search. Collection stops at the configured ad, page or time limit. Limits apply separately to each enabled search.',wraplength=1000).pack(anchor='w')
         self.log=tk.Text(self.home,height=12,wrap='word',state='disabled')
@@ -148,13 +163,44 @@ class Application(ttk.Frame):
         bar=ttk.Frame(self.audit); bar.grid(row=0,column=0,sticky='ew')
         ttk.Button(bar,text='Refresh queue',command=lambda:self.guard(self.refresh)).pack(side='left')
         ttk.Button(bar,text='Clear unreviewed',command=lambda:self.guard(self.clear_queue)).pack(side='left',padx=6)
-        ttk.Label(bar,text='  Client ID (leave blank for all):').pack(side='left')
-        self.client_filter=tk.StringVar()
-        ttk.Entry(bar,textvariable=self.client_filter,width=24).pack(side='left',padx=8)
+        self.position=tk.StringVar(value='No ads selected')
+        ttk.Label(bar,textvariable=self.position).pack(side='left',padx=10)
+        ttk.Button(bar,text='All information',command=self.open_all_information).pack(side='left',padx=5)
         self.queue_filters=FilterBar(self.audit,lambda:self.guard(self.refresh))
         self.queue_filters.grid(row=1,column=0,sticky='ew',pady=(5,0))
         self.queue_filters.grid_remove()
-        ttk.Button(bar,text='Show / hide filters',command=self.toggle_review_filters).pack(side='right')
+        ttk.Checkbutton(bar,text='Show dates in UTC',variable=self.show_utc,command=lambda:self.guard(self.change_display_timezone)).pack(side='left',padx=6)
+        from PIL import Image, ImageDraw, ImageTk
+        from .theme import IVORY
+        icon=Image.new('RGBA',(80,80),(0,0,0,0))
+        draw=ImageDraw.Draw(icon)
+        draw.line([(12,16),(68,16),(46,41),(46,62),(34,68),(34,41),(12,16)],fill=IVORY,width=6,joint='curve')
+        self.filter_icon=ImageTk.PhotoImage(icon.resize((20,20),Image.Resampling.LANCZOS),master=self)
+        self.filter_button=ttk.Button(bar,style='Primary.TButton',image=self.filter_icon,command=self.toggle_review_filters,takefocus=True)
+        self.filter_button.pack(side='left',padx=(4,0))
+        book=Image.new('RGBA',(80,80),(0,0,0,0))
+        book_draw=ImageDraw.Draw(book)
+        book_draw.line([(40,20),(30,14),(10,14),(10,60),(30,60),(40,66),(50,60),(70,60),(70,14),(50,14),(40,20),(40,66)],fill=IVORY,width=5,joint='curve')
+        self.history_icon=ImageTk.PhotoImage(book.resize((20,20),Image.Resampling.LANCZOS),master=self)
+        self.history_button=ttk.Button(bar,image=self.history_icon,command=lambda:self.guard(self.open_history),takefocus=True)
+        self.history_button.pack(side='left',padx=(6,0))
+        self.filter_tooltip=None
+        def hide_tooltip(event=None):
+            if self.filter_tooltip is not None:
+                self.filter_tooltip.destroy(); self.filter_tooltip=None
+        def show_tooltip(event=None):
+            hide_tooltip()
+            button=event.widget if event else self.filter_button
+            caption='History / corrections / reports' if button is self.history_button else 'Show / hide filters'
+            self.filter_tooltip=tk.Toplevel(self)
+            self.filter_tooltip.overrideredirect(True)
+            self.filter_tooltip.geometry(f'+{button.winfo_rootx()}+{button.winfo_rooty()+button.winfo_height()+4}')
+            ttk.Label(self.filter_tooltip,text=caption,padding=6).pack()
+        for icon_button in (self.filter_button,self.history_button):
+            icon_button.bind('<Enter>',show_tooltip)
+            icon_button.bind('<FocusIn>',show_tooltip)
+            for event in ('<Leave>','<FocusOut>','<ButtonPress>'):
+                icon_button.bind(event,hide_tooltip)
         self.review_summary=tk.StringVar(value='Saved results load automatically. Dates refer to observations in Colombia.')
         self.review_summary_label=ttk.Label(self.audit,textvariable=self.review_summary,wraplength=1000)
         self.review_summary_label.grid(row=2,column=0,sticky='ew',pady=(2,4))
@@ -171,27 +217,20 @@ class Application(ttk.Frame):
         queue_x.grid(row=1,column=0,sticky='ew')
         self.queue_table.configure(yscrollcommand=queue_y.set,xscrollcommand=queue_x.set)
         self.queue_table.bind('<<TreeviewSelect>>',lambda event:self.guard(self.show_selected))
-        navigation=ttk.Frame(self.audit); navigation.grid(row=4,column=0,sticky='ew',pady=5)
-        ttk.Button(navigation,text='Previous',command=lambda:self.guard(lambda:self.navigate(-1))).pack(side='left')
-        ttk.Button(navigation,text='Next',command=lambda:self.guard(lambda:self.navigate(1))).pack(side='left',padx=6)
-        ttk.Checkbutton(navigation,text='Show dates in UTC',variable=self.show_utc,command=lambda:self.guard(self.change_display_timezone)).pack(side='left',padx=6)
-        self.position=tk.StringVar(value='No ads selected')
-        ttk.Label(navigation,textvariable=self.position).pack(side='left',padx=10)
-        ttk.Button(navigation,text='All information',command=self.open_all_information).pack(side='left',padx=5)
-        ttk.Button(navigation,text='History / corrections / reports',command=lambda:self.guard(self.open_history)).pack(side='right')
         self.card=AdCard(self.audit,on_open=self.open_library)
         self.card.grid(row=5,column=0,sticky='nsew')
         self.detail=self.card.body
         self.decision_buttons=[]
         self.review_actions=ttk.Frame(self.audit); self.review_actions.grid(row=6,column=0,sticky='ew',pady=(6,3))
-        for column,(label,decision) in enumerate([('Spam (this ad)','spam'),('Flag advertiser','attack'),('Keep pending','pending')]):
-            button=ttk.Button(self.review_actions,text=label,command=lambda d=decision:self.guard(lambda:self.classify(d)))
+        for column,(label,decision) in enumerate([('Spam','spam'),('Pending','pending'),('Flag','attack')]):
+            button=ttk.Button(self.review_actions,text=label,style={'spam':'Spam.TButton','pending':'Pending.TButton','attack':'Flag.TButton'}[decision],command=lambda d=decision:self.guard(lambda:self.classify(d)))
             button.grid(row=0,column=column,sticky='ew',padx=3,pady=2)
             self.review_actions.columnconfigure(column,weight=1)
             self.decision_buttons.append(button)
-        ttk.Button(self.review_actions,text='Local evidence',command=lambda:self.guard(self.open_evidence)).grid(row=1,column=0,sticky='ew',padx=3,pady=2)
-        ttk.Button(self.review_actions,text='Open in Meta Ad Library',command=self.open_library).grid(row=1,column=1,columnspan=2,sticky='ew',padx=3,pady=2)
-        self.review_notice=ttk.Label(self.audit,text='Conflicts require administrative review. Reports to Meta are submitted manually.',wraplength=1000)
+        ttk.Button(self.review_actions,text='Previous',command=lambda:self.guard(lambda:self.navigate(-1))).grid(row=1,column=0,sticky='ew',padx=3,pady=2)
+        ttk.Button(self.review_actions,text='Open in Meta',command=self.open_library).grid(row=1,column=1,sticky='ew',padx=3,pady=2)
+        ttk.Button(self.review_actions,text='Next',command=lambda:self.guard(lambda:self.navigate(1))).grid(row=1,column=2,sticky='ew',padx=3,pady=2)
+        self.review_notice=ttk.Label(self.audit,text='Conflicts require administrative review.',wraplength=1000)
         self.review_notice.grid(row=7,column=0,sticky='ew',pady=(2,0))
         self.audit.bind('<Configure>',lambda event:self.resize_review(event.width))
 
@@ -236,6 +275,7 @@ class Application(ttk.Frame):
             if type(days) is not int or not 1<=days<=90: raise ValueError('Days to review must be between 1 and 90')
             loaded_days=days
             loaded_limits=validate_limits(document.get('collection_limits',{}))
+            loaded_repeat=self.validate_repeat(document.get('repeat',{'enabled':False,'hours':24}))
         else:
             plan=load_manifest(filename)
         self.search_rows.from_profiles(plan.profiles)
@@ -245,7 +285,10 @@ class Application(ttk.Frame):
             try:
                 self.days.set(str(loaded_days))
                 for key,value in loaded_limits.items(): self.limit_values[key].set(str(value))
+                self.repeat_enabled.set(loaded_repeat['enabled'])
+                self.repeat_hours.set(str(loaded_repeat['hours']))
             finally: self.loading_limits=False
+            self.schedule_repeat()
         self.render_searches()
         self.status.set(f'{len(self.search_rows.rows)} searches loaded. Output folder: {plan.output_directory}')
 
@@ -320,7 +363,46 @@ class Application(ttk.Frame):
         days=int(self.days.get())
         if not 1<=days<=90: raise ValueError('Days to review must be between 1 and 90')
         return {'schema_version':'1.0','type':'editable_search_list','days_to_review':days,
-                'output_directory':str(self.plan.output_directory),'profiles':profiles,'collection_limits':self.collection_limits()}
+                'output_directory':str(self.plan.output_directory),'profiles':profiles,'collection_limits':self.collection_limits(),'repeat':self.repeat_settings()}
+
+    @staticmethod
+    def validate_repeat(value):
+        if not isinstance(value,dict) or type(value.get('enabled')) is not bool:
+            raise ValueError('Invalid automatic repeat settings')
+        hours=value.get('hours',24)
+        if isinstance(hours,bool) or not isinstance(hours,(int,float)) or not math.isfinite(hours) or not 1<=hours<=8760:
+            raise ValueError('Repeat frequency must be between 1 and 8760 hours')
+        return {'enabled':value['enabled'],'hours':hours}
+
+    def repeat_settings(self):
+        try: hours=float(self.repeat_hours.get())
+        except ValueError: raise ValueError('Enter a valid repeat frequency in hours') from None
+        return self.validate_repeat({'enabled':self.repeat_enabled.get(),'hours':hours})
+
+    def repeat_changed(self):
+        if getattr(self,'loading_limits',False): return
+        self.repeat_due=None
+        try: self.repeat_settings()
+        except ValueError:
+            self.repeat_entry.state(['invalid'])
+            return
+        self.repeat_entry.state(['!invalid'])
+        self.schedule_repeat()
+        self.save_limits_change()
+
+    def schedule_repeat(self):
+        self.repeat_due=None
+        settings=self.repeat_settings()
+        if settings['enabled'] and not self.busy:
+            self.repeat_due=time.monotonic()+settings['hours']*3600
+            if hasattr(self,'status'):
+                next_run=datetime.now(ZoneInfo('America/Bogota'))+timedelta(hours=settings['hours'])
+                self.status.set(f"Automatic repeat: every {settings['hours']:g} hours. Next run: {next_run:%Y-%m-%d %H:%M} (Colombia).")
+
+    def stop_searches(self):
+        self.cancel.set()
+        self.repeat_enabled.set(False)
+        self.repeat_changed()
 
     def collection_limits(self):
         values={}
@@ -330,7 +412,9 @@ class Application(ttk.Frame):
         return validate_limits(values)
 
     def save_limits_change(self):
-        try: self.collection_limits()
+        try:
+            self.collection_limits()
+            self.repeat_settings()
         except ValueError: return
         if not getattr(self,'loading_limits',False): self.guard(self.autosave_searches)
 
@@ -356,6 +440,7 @@ class Application(ttk.Frame):
         if self.busy: return
         def setup():
             limits=self.collection_limits()
+            self.repeat_settings()
             self.autosave_searches()
             actor='local_operator'
             days=int(self.days.get())
@@ -370,7 +455,9 @@ class Application(ttk.Frame):
             output.mkdir(parents=True,exist_ok=True)
             with NamedTemporaryFile(dir=output,prefix='.write-check-'):
                 pass
+            self.repeat_due=None
             self.busy=True; self.cancel.clear(); self.set_busy(True)
+            self.schedule_repeat()
             threading.Thread(target=self.worker,args=(queries,output,actor,snapshot,limits),daemon=True).start()
         self.guard(setup)
 
@@ -404,7 +491,15 @@ class Application(ttk.Frame):
                 elif kind=='error': messagebox.showerror('Search error',value,parent=self)
                 elif kind=='done':
                     self.busy=False; self.set_busy(False); self.status.set('Searches finished. See the log and run summaries.'); self.guard(self.refresh)
+                    self.guard(self.schedule_repeat)
         except queue.Empty: pass
+        if self.repeat_due is not None and not self.busy and time.monotonic()>=self.repeat_due:
+            self.repeat_due=None
+            self.events.put(('log','Automatic repeat: starting enabled searches with the current settings.'))
+            self.start()
+            if not self.busy:
+                self.repeat_enabled.set(False)
+                self.repeat_changed()
         self.timer=self.after(150,self.poll)
 
     def set_busy(self,busy):
@@ -421,7 +516,7 @@ class Application(ttk.Frame):
         old_index=next((i for i,row in enumerate(self.rows) if row is old),0)
         with connect(self.database) as db:
             initialize(db)
-            result=database_queue(db,load_lists(self.lists_dir),client_id=self.client_filter.get().strip() or None,filters=self.queue_filters.get())
+            result=database_queue(db,load_lists(self.lists_dir),filters=self.queue_filters.get())
             last_run=db.execute('SELECT started_at,payload_json FROM runs ORDER BY started_at DESC,run_id DESC LIMIT 1').fetchone()
         self.rows=result['queue']+result['conflicts']; self.selected=None
         for row in self.rows:

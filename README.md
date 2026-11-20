@@ -29,6 +29,10 @@ The supplied example profile uses **Sample** in Colombia. Replace it with your s
 
 **Days to review** defaults to **1**, meaning today in `America/Bogota`. Larger values include today and the preceding days. Date boundaries are inclusive and apply to the ad start date after collection.
 
+### Automatic repeat
+
+The limit fields accept typed numbers without arrow controls. Enable **Repeat automatically** and enter **Every (h)** to schedule repeated batches while the application remains open. Default frequency is 24 hours; values from 1 to 8760 hours are supported; intervals below one hour are rejected. The next interval starts after the current batch finishes, preventing overlap. Enabling repeat schedules the first automatic run after that interval; **Run searches** starts immediately. **Stop** cancels the current search and turns repeat off. Repeat settings are saved with the search list; restoring an enabled setting schedules a fresh interval from application startup. There is no background execution after closing the application.
+
 ### Collection limits
 
 Each enabled search receives its own budget. The first applicable limit stops collection.

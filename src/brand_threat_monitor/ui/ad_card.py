@@ -10,6 +10,7 @@ from tkinter import ttk
 from datetime import datetime
 from urllib.parse import urlsplit, urlencode, parse_qs
 from zoneinfo import ZoneInfo
+from .theme import INK, TEAL, IVORY, PAPER, SECONDARY, BORDER, font_family
 
 
 def text(value):
@@ -110,8 +111,8 @@ class AdCard(ttk.Frame):
         self.columnconfigure(1,weight=1,uniform='card')
         self.columnconfigure(2,weight=2,uniform='card')
         self.rowconfigure(0,weight=1)
-        self.advertiser_panel=tk.Frame(self,bg='#f3f6fa',width=1,height=1)
-        self.media_panel=tk.Frame(self,bg='#f3f6fa',width=1,height=1)
+        self.advertiser_panel=tk.Frame(self,bg=PAPER,width=1,height=1,highlightthickness=1,highlightbackground=BORDER)
+        self.media_panel=tk.Frame(self,bg=PAPER,width=1,height=1,highlightthickness=1,highlightbackground=BORDER)
         self.text_panel=ttk.Frame(self,width=1,height=1)
         for column,panel in enumerate((self.advertiser_panel,self.media_panel,self.text_panel)):
             panel.grid(row=0,column=column,sticky='nsew',padx=(0,6) if column<2 else 0)
@@ -120,13 +121,13 @@ class AdCard(ttk.Frame):
         self.source_images={}
         self.advertiser_panel.rowconfigure(1,weight=1)
         self.advertiser_panel.columnconfigure(0,weight=1)
-        ttk.Label(self.advertiser_panel,text='Advertiser image').grid(row=0,column=0,pady=6)
-        self.advertiser_media=tk.Label(self.advertiser_panel,bg='#f3f6fa',fg='#65758b',text='No advertiser image',wraplength=150)
+        ttk.Label(self.advertiser_panel,text='PUBLISHER',style='Media.TLabel').grid(row=0,column=0,pady=6)
+        self.advertiser_media=tk.Label(self.advertiser_panel,bg=PAPER,fg=SECONDARY,text='No advertiser image',wraplength=150)
         self.advertiser_media.bind('<Button-1>',lambda event:self.open_publisher())
         self.advertiser_media.grid(row=1,column=0,sticky='nsew')
         self.media_panel.columnconfigure(0,weight=1); self.media_panel.rowconfigure(1,weight=1)
-        ttk.Label(self.media_panel,text='Ad image / video preview').grid(row=0,column=0,pady=6)
-        self.media=tk.Label(self.media_panel,bg='#f3f6fa',fg='#65758b',text='No ad image',wraplength=150)
+        ttk.Label(self.media_panel,text='AD PREVIEW',style='Media.TLabel').grid(row=0,column=0,pady=6)
+        self.media=tk.Label(self.media_panel,bg=PAPER,fg=SECONDARY,text='No ad image',wraplength=150)
         self.media.bind('<Button-1>',lambda event:self.open_ad())
         self.media.grid(row=1,column=0,sticky='nsew')
         self.preview_button=ttk.Button(self.media_panel,text='Preview local image',command=self.preview)
@@ -134,23 +135,23 @@ class AdCard(ttk.Frame):
         self.retry_button=ttk.Button(self.media_panel,text='Retry web images',command=self.retry_image)
         self.retry_button.grid(row=3,column=0,pady=3)
         self.text_panel.columnconfigure(0,weight=1); self.text_panel.rowconfigure(0,weight=1)
-        self.canvas=tk.Canvas(self.text_panel,highlightthickness=0,background='white',width=1,height=1)
+        self.canvas=tk.Canvas(self.text_panel,highlightthickness=0,background=IVORY,width=1,height=1)
         scroll=ttk.Scrollbar(self.text_panel,command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=scroll.set)
         self.canvas.grid(row=0,column=0,sticky='nsew'); scroll.grid(row=0,column=1,sticky='ns')
-        self.surface=tk.Frame(self.canvas,bg='white',padx=10,pady=10)
+        self.surface=tk.Frame(self.canvas,bg=IVORY,padx=10,pady=10)
         self.item=self.canvas.create_window((0,0),window=self.surface,anchor='nw')
         self.surface.bind('<Configure>',lambda e:self.canvas.configure(scrollregion=self.canvas.bbox('all')))
         self.canvas.bind('<Configure>',self.resize)
-        def label(size=10,color='#526277'):
-            widget=tk.Label(self.surface,text='',font=('Segoe UI',size),bg='white',fg=color,justify='left',anchor='w')
+        def label(size=10,color=SECONDARY):
+            widget=tk.Label(self.surface,text='',font=(font_family(self,'display' if size>=14 else 'body'),size,'bold' if size>=14 else 'normal'),bg=IVORY,fg=color,justify='left',anchor='w')
             widget.pack(fill='x',pady=4)
             return widget
-        self.name=label(14,'#172b4d'); self.status=label(); self.priority=label()
-        self.title=label(16,'#172b4d')
-        self.body=tk.Text(self.surface,height=7,width=1,wrap='word',state='disabled',relief='flat',bg='white',fg='#25364a',font=('Segoe UI',11))
+        self.name=label(14,INK); self.status=label(); self.priority=label()
+        self.title=label(16,INK)
+        self.body=tk.Text(self.surface,height=7,width=1,wrap='word',state='disabled',relief='flat',bg=IVORY,fg=INK,font=(font_family(self),11),spacing1=3,spacing3=5)
         self.body.pack(fill='x',pady=5)
-        self.destination=label(10,'#244c91')
+        self.destination=label(10,TEAL)
         self.external_section=ttk.LabelFrame(self.surface,text='External links in this ad',padding=8)
         self.external_section.pack(fill='x',pady=8)
         self.copy_button=ttk.Button(self.surface,text='Copy destination URL',command=self.copy_url); self.copy_button.pack(anchor='w',pady=3)
@@ -253,7 +254,7 @@ class AdCard(ttk.Frame):
         for child in self.external_section.winfo_children(): child.destroy()
         ttk.Label(self.external_section,text=f'{len(links)} external link(s) detected' if links else 'No external links detected in the available ad data.',wraplength=250).pack(anchor='w')
         for url in links:
-            label=tk.Label(self.external_section,text=url,fg='#244c91',cursor='hand2',wraplength=250,justify='left',anchor='w')
+            label=tk.Label(self.external_section,text=url,bg=TEAL,fg=IVORY,cursor='hand2',wraplength=250,justify='left',anchor='w')
             label.pack(fill='x',pady=4)
             label.bind('<Button-1>',lambda event,target=url:webbrowser.open(target))
 
