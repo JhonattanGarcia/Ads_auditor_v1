@@ -36,11 +36,26 @@ class MetaCollector:
                cancel_event: Event | None = None, start_date=None, end_date=None) -> Iterator[CollectedAd]:
         if cancel_event is not None and cancel_event.is_set():
             raise CollectorCancelled("Consulta cancelada antes de iniciar")
+        original_page_search=None
+        if getattr(self,'max_pages',None) is not None:
+            original_page_search=self._backend.client.search_ads
+            def limited_page(**kwargs):
+                if self._backend.stats.get('pages_fetched',0)>=self.max_pages:
+                    self._backend.stats['page_limit_reached']=True
+                    return {'ads':[]},None
+                response,cursor=original_page_search(**kwargs)
+                if cursor and self._backend.stats.get('pages_fetched',0)+1>=self.max_pages:
+                    self._backend.stats['page_limit_reached']=True
+                    cursor=None
+                if getattr(self,'page_callback',None):
+                    self.page_callback({'pages_fetched':self._backend.stats.get('pages_fetched',0)+1,'page_limit_reached':self._backend.stats.get('page_limit_reached',False)})
+                return response,cursor
+            self._backend.client.search_ads=limited_page
         original_builder = None
-        if start_date is not None:
-            from .date_filter import install_date_filter
-            original_builder = install_date_filter(self._backend.client,start_date,end_date,self.request_callback)
         try:
+            if start_date is not None:
+                from .date_filter import install_date_filter
+                original_builder = install_date_filter(self._backend.client,start_date,end_date,self.request_callback)
             for ad in self._backend.search(query=query, country=country,
                                            max_results=max_results):
                 if cancel_event is not None and cancel_event.is_set():
@@ -56,5 +71,7 @@ class MetaCollector:
         except Exception as exc:
             raise CollectorError(str(exc)) from exc
         finally:
+            if original_page_search is not None:
+                self._backend.client.search_ads=original_page_search
             if original_builder is not None:
                 self._backend.client._build_graphql_payload = original_builder

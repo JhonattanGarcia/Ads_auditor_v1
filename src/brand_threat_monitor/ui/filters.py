@@ -20,6 +20,7 @@ class FilterBar(ttk.Frame):
             entry.grid(row=row+1,column=column,sticky='ew',padx=4,pady=(0,5))
             entry.bind('<Return>',lambda event:on_apply())
             self.columnconfigure(column,weight=1)
+        ttk.Label(self,text='Source ad timestamps: UTC (+00:00). Display: UTC or Colombia (UTC-05:00), selected with Show dates in UTC. From / To filter observation dates in Colombia.',wraplength=950).grid(row=4,column=0,columnspan=3,sticky='w',padx=4,pady=(0,4))
         actions=ttk.Frame(self); actions.grid(row=3,column=2,sticky='e')
         ttk.Button(actions,text='Apply filters',command=on_apply).pack(side='left',padx=4)
         def reset():

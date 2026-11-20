@@ -24,6 +24,11 @@ def finished(sender,*args):
     sender.close()
 
 
+def page_then_stall(sender,*args):
+    sender.send(('page',{'pages_fetched':2,'page_limit_reached':False}))
+    time.sleep(30)
+
+
 class BoundedTests(unittest.TestCase):
     def test_idle_timeout_keeps_received_result(self):
         profile=json.loads((Path(__file__).resolve().parents[2]/'profiles/example.json').read_text(encoding='utf-8-sig'))
@@ -56,6 +61,12 @@ class BoundedTests(unittest.TestCase):
     def test_empty_completed_search_is_not_a_timeout(self):
         with BoundedMetaCollector(worker_target=finished) as collector:
             self.assertEqual(list(collector.search(query='test',country='CO',max_results=10)),[])
+
+    def test_page_counts_survive_timeout(self):
+        with BoundedMetaCollector(max_pages=3,max_duration=2,idle_timeout=1,worker_target=page_then_stall) as collector:
+            with self.assertRaises(CollectorTimeout):
+                list(collector.search(query='test',country='CO',max_results=100))
+            self.assertEqual(collector.stats['pages_fetched'],2)
 
 
 if __name__=='__main__': unittest.main()

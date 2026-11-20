@@ -1,21 +1,24 @@
 """Interfaz de escritorio local con Tkinter y consultas en segundo plano."""
 
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import queue
 import threading
 import tkinter as tk
 import webbrowser
 from pathlib import Path
-from tkinter import ttk, filedialog, messagebox, simpledialog
+from tkinter import ttk, filedialog, messagebox
 from urllib.parse import urlencode
 
+from ..config.limits import DEFAULT_LIMITS, BOUNDS, validate_limits
 from ..config.profiles import load_manifest, SearchPlan, validate_profile, read_json
 from .search_rows import SearchRows
 from ..ingestion.service import write_json
 from ..ingestion.collector import collect
 from ..ingestion.service import persist_result
 from ..lists.service import load_lists, merge_database_lists
-from ..review.queue import database_queue, evaluate_result
+from ..review.queue import database_queue, evaluate_result, clear_unreviewed
 from ..review.service import open_case, decide
 from ..storage.database import connect, initialize
 from .audit import format_ad
@@ -23,6 +26,7 @@ from .history import HistoryWindow
 from .filters import FilterBar
 from .evidence import EvidenceWindow
 from .lists import ListsWindow
+from .ad_card import AdCard
 from .information import format_information, InformationWindow
 from ..review.service import case_detail
 
@@ -34,6 +38,14 @@ REASONS = {
     'pending_review': 'No applicable history; human review required',
     'list_conflict': 'Whitelist/blacklist conflict; administrative review required',
 }
+
+
+def ad_start(row,display_timezone='America/Bogota'):
+    try:
+        value=datetime.fromisoformat(row.get('delivery_start_time') or '')
+        if value.tzinfo is None: return None
+        return value.astimezone(ZoneInfo(display_timezone))
+    except (TypeError,ValueError): return None
 
 
 class Application(ttk.Frame):
@@ -114,30 +126,44 @@ class Application(ttk.Frame):
         self.run_button.pack(side='left',padx=5)
         self.stop_button=ttk.Button(actions,text='Stop',command=self.cancel.set,state='disabled')
         self.stop_button.pack(side='left')
+        limits_bar=ttk.LabelFrame(self.home,text='Collection limits (per search)',padding=5)
+        limits_bar.pack(fill='x',pady=(5,0))
+        self.limit_values={}
+        for column,(key,label) in enumerate([('max_scan','Max ads'),('max_pages','Max pages'),('max_duration','Total seconds'),('idle_timeout','Idle seconds')]):
+            ttk.Label(limits_bar,text=label).grid(row=0,column=column*2,padx=3)
+            value=tk.StringVar(value=str(DEFAULT_LIMITS[key])); self.limit_values[key]=value
+            ttk.Spinbox(limits_bar,from_=BOUNDS[key][0],to=BOUNDS[key][1],textvariable=value,width=7).grid(row=0,column=column*2+1,padx=3)
+            value.trace_add('write',lambda *args:self.save_limits_change())
         self.progress=ttk.Progressbar(self.home,mode='indeterminate'); self.progress.pack(fill='x',pady=12)
-        ttk.Label(self.home,text='The range includes today and the preceding days; 1 = today in Colombia. Dates are requested from Meta and checked locally.\nCoverage is partial and ads may be missed. Stop interrupts the search. Searches stop after 120s or 45s without receiving ads.',wraplength=1000).pack(anchor='w')
+        ttk.Label(self.home,text='The range includes today and the preceding days; 1 = today in Colombia (UTC-05:00). Source ad timestamps are UTC (+00:00), converted to Colombia time for filtering. Dates are applied locally after collection; accepted ads are sorted newest first.\nCoverage is partial and ads may be missed. Stop interrupts the search. Collection stops at the configured ad, page or time limit. Limits apply separately to each enabled search.',wraplength=1000).pack(anchor='w')
         self.log=tk.Text(self.home,height=12,wrap='word',state='disabled')
         self.log.pack(fill='both',expand=True,pady=10)
 
     def build_audit(self):
+        self.show_utc=tk.BooleanVar(value=False)
+        self.date_sort=None
         self.audit.columnconfigure(0,weight=1)
         self.audit.rowconfigure(3,weight=1,minsize=45)
-        self.audit.rowconfigure(5,weight=3,minsize=50)
+        self.audit.rowconfigure(5,weight=5,minsize=100)
         bar=ttk.Frame(self.audit); bar.grid(row=0,column=0,sticky='ew')
         ttk.Button(bar,text='Refresh queue',command=lambda:self.guard(self.refresh)).pack(side='left')
+        ttk.Button(bar,text='Clear unreviewed',command=lambda:self.guard(self.clear_queue)).pack(side='left',padx=6)
         ttk.Label(bar,text='  Client ID (leave blank for all):').pack(side='left')
         self.client_filter=tk.StringVar()
         ttk.Entry(bar,textvariable=self.client_filter,width=24).pack(side='left',padx=8)
         self.queue_filters=FilterBar(self.audit,lambda:self.guard(self.refresh))
         self.queue_filters.grid(row=1,column=0,sticky='ew',pady=(5,0))
+        self.queue_filters.grid_remove()
+        ttk.Button(bar,text='Show / hide filters',command=self.toggle_review_filters).pack(side='right')
         self.review_summary=tk.StringVar(value='Saved results load automatically. Dates refer to observations in Colombia.')
         self.review_summary_label=ttk.Label(self.audit,textvariable=self.review_summary,wraplength=1000)
         self.review_summary_label.grid(row=2,column=0,sticky='ew',pady=(2,4))
         table_frame=ttk.Frame(self.audit); table_frame.grid(row=3,column=0,sticky='nsew')
         table_frame.columnconfigure(0,weight=1); table_frame.rowconfigure(0,weight=1)
-        self.queue_table=ttk.Treeview(table_frame,columns=('priority','client','ad','advertiser','reason'),show='headings',height=4)
-        for col,label,width in [('priority','Priority',65),('client','Client',130),('ad','Ad',150),('advertiser','Advertiser',150),('reason','Reason',400)]:
+        self.queue_table=ttk.Treeview(table_frame,columns=('priority','start','client','ad','advertiser','reason'),show='headings',height=4)
+        for col,label,width in [('priority','Priority',65),('start','Ad start date',155),('client','Client',130),('ad','Ad',150),('advertiser','Advertiser',150),('reason','Reason',400)]:
             self.queue_table.heading(col,text=label); self.queue_table.column(col,width=width,minwidth=55)
+        self.queue_table.heading('start',command=lambda:self.guard(self.sort_by_date))
         self.queue_table.grid(row=0,column=0,sticky='nsew')
         queue_y=ttk.Scrollbar(table_frame,orient='vertical',command=self.queue_table.yview)
         queue_y.grid(row=0,column=1,sticky='ns')
@@ -148,16 +174,14 @@ class Application(ttk.Frame):
         navigation=ttk.Frame(self.audit); navigation.grid(row=4,column=0,sticky='ew',pady=5)
         ttk.Button(navigation,text='Previous',command=lambda:self.guard(lambda:self.navigate(-1))).pack(side='left')
         ttk.Button(navigation,text='Next',command=lambda:self.guard(lambda:self.navigate(1))).pack(side='left',padx=6)
+        ttk.Checkbutton(navigation,text='Show dates in UTC',variable=self.show_utc,command=lambda:self.guard(self.change_display_timezone)).pack(side='left',padx=6)
         self.position=tk.StringVar(value='No ads selected')
         ttk.Label(navigation,textvariable=self.position).pack(side='left',padx=10)
         ttk.Button(navigation,text='All information',command=self.open_all_information).pack(side='left',padx=5)
         ttk.Button(navigation,text='History / corrections / reports',command=lambda:self.guard(self.open_history)).pack(side='right')
-        detail_frame=ttk.Frame(self.audit); detail_frame.grid(row=5,column=0,sticky='nsew')
-        detail_frame.columnconfigure(0,weight=1); detail_frame.rowconfigure(0,weight=1)
-        self.detail=tk.Text(detail_frame,height=4,wrap='word',state='disabled')
-        scrollbar=ttk.Scrollbar(detail_frame,command=self.detail.yview)
-        scrollbar.grid(row=0,column=1,sticky='ns'); self.detail.grid(row=0,column=0,sticky='nsew')
-        self.detail.configure(yscrollcommand=scrollbar.set)
+        self.card=AdCard(self.audit,on_open=self.open_library)
+        self.card.grid(row=5,column=0,sticky='nsew')
+        self.detail=self.card.body
         self.decision_buttons=[]
         self.review_actions=ttk.Frame(self.audit); self.review_actions.grid(row=6,column=0,sticky='ew',pady=(6,3))
         for column,(label,decision) in enumerate([('Spam (this ad)','spam'),('Flag advertiser','attack'),('Keep pending','pending')]):
@@ -170,6 +194,10 @@ class Application(ttk.Frame):
         self.review_notice=ttk.Label(self.audit,text='Conflicts require administrative review. Reports to Meta are submitted manually.',wraplength=1000)
         self.review_notice.grid(row=7,column=0,sticky='ew',pady=(2,0))
         self.audit.bind('<Configure>',lambda event:self.resize_review(event.width))
+
+    def toggle_review_filters(self):
+        if self.queue_filters.winfo_manager(): self.queue_filters.grid_remove()
+        else: self.queue_filters.grid()
 
     def resize_review(self,width):
         self.review_notice.configure(wraplength=max(200,width-24))
@@ -207,12 +235,17 @@ class Application(ttk.Frame):
             days=document.get('days_to_review',1)
             if type(days) is not int or not 1<=days<=90: raise ValueError('Days to review must be between 1 and 90')
             loaded_days=days
+            loaded_limits=validate_limits(document.get('collection_limits',{}))
         else:
             plan=load_manifest(filename)
         self.search_rows.from_profiles(plan.profiles)
         self.plan=plan
         if document.get('type')=='editable_search_list':
-            self.days.set(str(loaded_days))
+            self.loading_limits=True
+            try:
+                self.days.set(str(loaded_days))
+                for key,value in loaded_limits.items(): self.limit_values[key].set(str(value))
+            finally: self.loading_limits=False
         self.render_searches()
         self.status.set(f'{len(self.search_rows.rows)} searches loaded. Output folder: {plan.output_directory}')
 
@@ -287,17 +320,30 @@ class Application(ttk.Frame):
         days=int(self.days.get())
         if not 1<=days<=90: raise ValueError('Days to review must be between 1 and 90')
         return {'schema_version':'1.0','type':'editable_search_list','days_to_review':days,
-                'output_directory':str(self.plan.output_directory),'profiles':profiles}
+                'output_directory':str(self.plan.output_directory),'profiles':profiles,'collection_limits':self.collection_limits()}
+
+    def collection_limits(self):
+        values={}
+        for key,variable in self.limit_values.items():
+            try: values[key]=int(variable.get())
+            except ValueError: raise ValueError(f'{key}: enter a whole number') from None
+        return validate_limits(values)
+
+    def save_limits_change(self):
+        try: self.collection_limits()
+        except ValueError: return
+        if not getattr(self,'loading_limits',False): self.guard(self.autosave_searches)
 
     def autosave_searches(self):
-        write_json(self.search_list_file,self.search_list_document())
+        if not getattr(self,'loading_limits',False):
+            write_json(self.search_list_file,self.search_list_document())
 
     def save_days_change(self):
         # Spinbox editing may temporarily leave an empty value; save once valid.
         try:
             days=int(self.days.get())
         except ValueError: return
-        if 1<=days<=90: self.guard(self.autosave_searches)
+        if 1<=days<=90: self.save_limits_change()
 
     def save_search_list(self):
         if self.busy: raise ValueError('Wait for the current search to finish')
@@ -309,6 +355,8 @@ class Application(ttk.Frame):
     def start(self):
         if self.busy: return
         def setup():
+            limits=self.collection_limits()
+            self.autosave_searches()
             actor='local_operator'
             days=int(self.days.get())
             if not 1<=days<=90: raise ValueError('Days to review must be between 1 and 90')
@@ -323,16 +371,18 @@ class Application(ttk.Frame):
             with NamedTemporaryFile(dir=output,prefix='.write-check-'):
                 pass
             self.busy=True; self.cancel.clear(); self.set_busy(True)
-            threading.Thread(target=self.worker,args=(queries,output,actor,snapshot),daemon=True).start()
+            threading.Thread(target=self.worker,args=(queries,output,actor,snapshot,limits),daemon=True).start()
         self.guard(setup)
 
-    def worker(self,queries,output,actor,snapshot):
+    def worker(self,queries,output,actor,snapshot,limits=None):
         try:
             for index,profile in enumerate(queries,1):
                 if self.cancel.is_set(): break
                 self.events.put(('log',f'{index}/{len(queries)} · {profile["client_name"]}: {profile["criteria"][0]["query"]}'))
-                result=collect(profile,max_scan=100,cancel_event=self.cancel,
+                result=collect(profile,**(limits or DEFAULT_LIMITS),cancel_event=self.cancel,
                     progress_callback=lambda progress:self.events.put(('progress',progress)))
+                self.events.put(('log',f"Stopped: {result.get('stop_reason','unknown')}; pages: {result.get('connector_stats',{}).get('pages_fetched','not available')}"))
+                self.events.put(('log',f"Post-filtered: {result['scanned_ads']} received; {result['returned_ads']} accepted; {result['excluded_by_date']} outside range. Newest ad starts first."))
                 result.update(client_id=profile['client_id'],client_name=profile['client_name'])
                 result['list_evaluation']=evaluate_result(result,snapshot)
                 path=output/result['run_id']/'results.json'
@@ -350,7 +400,7 @@ class Application(ttk.Frame):
                 if kind=='log':
                     self.log.configure(state='normal'); self.log.insert('end',value+'\n'); self.log.see('end'); self.log.configure(state='disabled'); self.status.set(value)
                 elif kind=='progress':
-                    self.status.set(f'{value["elapsed_seconds"]}s | Received: {value["received_ads"]} | In date range: {value["accepted_ads"]} | Outside date range: {value["excluded_by_date"]} | {value["message"]}')
+                    self.status.set(f'{value["elapsed_seconds"]}s | Received: {value["received_ads"]} | In date range: {value["accepted_ads"] if value["accepted_ads"] is not None else "pending"} | Outside date range: {value["excluded_by_date"] if value["excluded_by_date"] is not None else "pending"} | {value["message"]}')
                 elif kind=='error': messagebox.showerror('Search error',value,parent=self)
                 elif kind=='done':
                     self.busy=False; self.set_busy(False); self.status.set('Searches finished. See the log and run summaries.'); self.guard(self.refresh)
@@ -376,10 +426,15 @@ class Application(ttk.Frame):
         self.rows=result['queue']+result['conflicts']; self.selected=None
         for row in self.rows:
             row['reason']=REASONS.get(row['state'],row['reason'])
+        if self.date_sort:
+            dated=[r for r in self.rows if ad_start(r) is not None]
+            missing=[r for r in self.rows if ad_start(r) is None]
+            self.rows=sorted(dated,key=lambda r:ad_start(r).timestamp(),reverse=self.date_sort=='desc')+missing
+        self.queue_table.heading('start',text=('Ad start (UTC)' if self.show_utc.get() else 'Ad start (UTC-05)')+(' (newest)' if self.date_sort=='desc' else ' (oldest)' if self.date_sort else ''))
         self.queue_table.delete(*self.queue_table.get_children())
         for index,row in enumerate(self.rows):
-            self.queue_table.insert('','end',iid=str(index),values=(row['priority'] or 'Conflict',row['client_id'] or 'Global',row['ad_id'],row['advertiser_id'] or 'Not available',row['reason']))
-        self.review_summary.set(f'{len(result["queue"])} pending; {len(result["conflicts"])} conflicts. Newest observations first within each priority. Dates are inclusive, Colombia time.')
+            self.queue_table.insert('','end',iid=str(index),values=(row['priority'] or 'Conflict',ad_start(row,'UTC' if self.show_utc.get() else 'America/Bogota').strftime('%Y-%m-%d %H:%M') if ad_start(row) else 'Not available',row['client_id'] or 'Global',row['ad_id'],row['advertiser_id'] or 'Not available',row['reason']))
+        self.review_summary.set(f'{len(result["queue"])} pending; {len(result["conflicts"])} conflicts. Click Ad start date to sort. Source timestamps: UTC. Use Show dates in UTC to switch the display; date filters use observation dates in Colombia.')
         if not self.rows and last_run is not None:
             payload=json.loads(last_run['payload_json'])
             errors=payload.get('errors',[])
@@ -397,12 +452,34 @@ class Application(ttk.Frame):
             self.queue_table.selection_set(str(preserved)); self.queue_table.see(str(preserved))
             self.show_selected()
 
+    def change_display_timezone(self):
+        self.card.display_timezone='UTC' if self.show_utc.get() else 'America/Bogota'
+        if self.database.exists(): self.refresh()
+        else:
+            self.queue_table.heading('start',text='Ad start (UTC)' if self.show_utc.get() else 'Ad start (UTC-05)')
+
+    def sort_by_date(self):
+        self.date_sort='asc' if self.date_sort=='desc' else 'desc'
+        self.refresh()
+
+    def clear_queue(self):
+        if self.busy: raise ValueError('Wait for the search to finish')
+        rows=[dict(r) for r in self.rows if not r.get('reviewed') and r['state']!='list_conflict']
+        if not rows:
+            messagebox.showinfo('Clear unreviewed','No unreviewed ads in the current queue.',parent=self)
+            return
+        if not messagebox.askyesno('Clear unreviewed',f'Remove {len(rows)} unreviewed ads matching the current filters from the queue? No category will be assigned. History is preserved. A later observation can return an ad to the queue.',parent=self): return
+        with connect(self.database) as db:
+            count=clear_unreviewed(db,rows,actor='local_operator')
+        self.refresh()
+        self.status.set(f'{count} unreviewed ads cleared without classification')
+
     def set_detail(self,text):
         self.analysis_information={}
-        self.detail.configure(state='normal'); self.detail.delete('1.0','end'); self.detail.insert('1.0',text); self.detail.configure(state='disabled')
+        self.card.show_message(text)
 
     def set_information(self,data):
-        self.set_detail(format_information(data))
+        self.set_detail('Select an ad to see its presentation card. Open All information for search results and diagnostics.')
         self.analysis_information=data
 
     def open_all_information(self):
@@ -429,6 +506,8 @@ class Application(ttk.Frame):
                               'Current queue evaluation':row,
                               'Review cases, evidence and history':cases,
                               'Related search results':runs})
+        local_images=[e for case in cases for e in case['evidence'] if e.get('local_path') and e.get('type')=='local_image']
+        self.card.show(payload,priority=row['priority'] or 'Conflict',evidence=local_images)
 
 
     def navigate(self,direction):
@@ -455,18 +534,17 @@ class Application(ttk.Frame):
         if row is None: raise ValueError('Select an ad')
         if row['state']=='list_conflict': raise ValueError('Resolve the list conflict before classifying')
         actor='local_operator'
-        reason=simpledialog.askstring('Reason','Enter the reason for this decision:',parent=self)
-        if not reason or not reason.strip(): return
+        reason={'spam':'Ad marked as spam by the reviewer',
+                'attack':'Advertiser flagged by the reviewer',
+                'pending':'Ad kept pending by the reviewer'}[decision]
         evidence=None; confirmation=None
         if decision=='attack':
             confirmation=row['advertiser_id']
             if not confirmation: raise ValueError('No verifiable advertiser ID is available')
-            if not messagebox.askyesno('Confirm advertiser flag',f'Flag advertiser {confirmation}: future ads will be prioritized. Confirm?',parent=self): return
             evidence=filedialog.askopenfilename(parent=self,title='Select an evidence file')
             if not evidence: return
         elif decision=='spam':
             confirmation=row['ad_id']
-            if not messagebox.askyesno('Confirm spam',f'Discard only ad {confirmation}. Confirm?',parent=self): return
         with connect(self.database) as db:
             initialize(db)
             case_id=row.get('case_id') or open_case(db,row['source'],row['ad_id'],actor=actor,client_id=row['client_id'])['case_id']

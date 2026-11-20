@@ -11,11 +11,13 @@ class CollectorTimeout(CollectorError):
     pass
 
 
-def meta_worker(sender, query, country, max_results, timeout, max_retries, start_date=None, end_date=None):
+def meta_worker(sender, query, country, max_results, timeout, max_retries, start_date=None, end_date=None, max_pages=None):
     """Solo este proceso toca el cliente de red del proveedor."""
     from .meta import MetaCollector
     try:
         with MetaCollector(timeout=timeout,max_retries=max_retries) as collector:
+            collector.max_pages=max_pages
+            collector.page_callback=lambda stats:sender.send(('page',stats))
             collector.request_callback=lambda info:sender.send(('request',info))
             for ad in collector.search(query=query,country=country,max_results=max_results,
                                        start_date=start_date,end_date=end_date):
@@ -32,10 +34,11 @@ class BoundedMetaCollector:
     capabilities=CollectorCapabilities(server_date_filter=True,cancellation='process_termination')
 
     def __init__(self, *, timeout=20, max_retries=1, max_duration=120,
-                 idle_timeout=45, worker_target=meta_worker):
+                 idle_timeout=45, worker_target=meta_worker, max_pages=None):
         self.version=version('meta-ads-collector')
         self.timeout=timeout
         self.max_retries=max_retries
+        self.max_pages=max_pages
         self.max_duration=max_duration
         self.idle_timeout=idle_timeout
         self.worker_target=worker_target
@@ -64,7 +67,7 @@ class BoundedMetaCollector:
             raise CollectorCancelled('Search cancelled before starting')
         context=mp.get_context('spawn')
         self.receiver,sender=context.Pipe(duplex=False)
-        self.process=context.Process(target=self.worker_target,args=(sender,query,country,max_results,self.timeout,self.max_retries,start_date,end_date),daemon=True)
+        self.process=context.Process(target=self.worker_target,args=(sender,query,country,max_results,self.timeout,self.max_retries,start_date,end_date,self.max_pages),daemon=True)
         started=last_result=last_progress=time.monotonic()
         try:
             self.process.start(); sender.close()
@@ -94,6 +97,8 @@ class BoundedMetaCollector:
                         self.progress_callback({'elapsed_seconds':int(last_result-started),'received_ads':self.stats['ads_collected'],
                                                 'message':'Inspecting received ads'})
                     yield value
+                elif kind=='page':
+                    self.stats.update(value)
                 elif kind=='request':
                     self.stats['date_filter_requests'].append(value)
                 elif kind=='done':

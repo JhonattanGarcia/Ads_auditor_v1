@@ -30,28 +30,28 @@ class DateFilterTests(unittest.TestCase):
         payload=client._build_graphql_payload('doc',{'adArchiveID':'test'},'AdLibraryV3AdDetailsQuery')
         self.assertNotIn('startDate',payload['variables'])
 
-    def test_ignored_server_filter_stops_before_next_record(self):
+    def test_collection_does_not_send_server_dates_or_stop_on_old_ads(self):
         from datetime import datetime,timezone
         from brand_threat_monitor.collectors.base import CollectedAd,CollectorCapabilities
         from brand_threat_monitor.ingestion.collector import collect
-        class IgnoredFilter:
+        class Source:
             capabilities=CollectorCapabilities(server_date_filter=True)
             stats={}
             def __init__(self,**kwargs): pass
             def __enter__(self): return self
             def __exit__(self,*args): pass
             def search(self,**kwargs):
-                assert kwargs['start_date']=='2026-11-14'
-                assert kwargs['end_date']=='2026-11-14'
+                assert 'start_date' not in kwargs and 'end_date' not in kwargs
                 yield CollectedAd('old',datetime(2025,1,1,tzinfo=timezone.utc),None,{})
-                raise AssertionError('Pagination must stop before requesting more records')
+                yield CollectedAd('new',datetime(2026,11,14,12,tzinfo=timezone.utc),None,{})
         profile={'country':'sv','criteria':[{'query':'chivo'}],
                  'search':{'template_url':'https://www.facebook.com/ads/library/',
                            'date_range':{'mode':'fixed','min':'2026-11-14','max':'2026-11-14'}}}
-        result=collect(profile,collector_factory=IgnoredFilter)
-        self.assertEqual(result['scanned_ads'],1)
-        self.assertEqual(result['temporal_filter_status'],'server_filter_not_respected')
-        self.assertEqual(result['errors'][0]['type'],'ServerDateFilterMismatch')
+        result=collect(profile,collector_factory=Source)
+        self.assertEqual(result['scanned_ads'],2)
+        self.assertEqual(result['temporal_filter_status'],'post_filtered_locally')
+        self.assertEqual(result['errors'],[])
+        self.assertEqual([ad['ad_id'] for ad in result['ads']],['new'])
 
     def test_invalid_range_rejected(self):
         with self.assertRaises(ValueError): install_date_filter(Mock(),'2026-11-15','2026-11-14')

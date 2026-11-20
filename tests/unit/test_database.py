@@ -32,7 +32,7 @@ class DatabaseTests(unittest.TestCase):
 
     def test_migration_repeatable_and_foreign_keys_enabled(self):
         initialize(self.db)
-        self.assertEqual(self.count('schema_migrations'),4)
+        self.assertEqual(self.count('schema_migrations'),5)
         self.assertEqual(self.db.execute('PRAGMA foreign_keys').fetchone()[0],1)
         self.assertEqual(self.db.execute('PRAGMA journal_mode').fetchone()[0],'wal')
 

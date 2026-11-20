@@ -6,7 +6,7 @@ from .filters import Filters
 
 def observation_contexts(db):
     return [dict(row) for row in db.execute('''SELECT a.source,a.ad_id,a.advertiser_id,q.client_id,
-        q.country,q.query,o.observed_at,o.run_id FROM ads a
+        q.country,q.query,o.observed_at,o.run_id,a.payload_json FROM ads a
         JOIN ad_observations o ON o.source=a.source AND o.ad_id=a.ad_id
         JOIN observation_queries p ON p.run_id=o.run_id AND p.source=o.source AND p.ad_id=o.ad_id
         JOIN run_queries q ON q.query_id=p.query_id''')]

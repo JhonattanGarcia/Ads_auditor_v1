@@ -30,14 +30,20 @@ def main():
     inputs.add_argument("--manifest", type=Path)
     parser.add_argument("--url", help="Plantilla alternativa; el perfil determina pais, criterio y fechas")
     parser.add_argument("--max-scan", type=int, default=30)
+    parser.add_argument('--max-pages',type=int,default=20)
+    parser.add_argument('--max-duration',type=int,default=120,help='Total seconds per search')
+    parser.add_argument('--idle-timeout',type=int,default=45,help='Seconds without receiving an ad')
     parser.add_argument("--output", type=Path, help="Archivo de salida, solo para una consulta")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--diagnostic", action="store_true", help="Compatibility option; all runs now retain received content and post-filter locally")
     parser.add_argument("--database", type=Path, default=Path(__file__).resolve().parent / "data/database/monitor.sqlite3")
     parser.add_argument("--lists-dir", type=Path, default=Path(__file__).resolve().parent / "lists")
     parser.add_argument("--actor", help="Analista; si se omite usa set-operator")
     args = parser.parse_args()
-    if not 1 <= args.max_scan <= 100:
-        parser.error("--max-scan debe estar entre 1 y 100")
+    from brand_threat_monitor.config.limits import validate_limits
+    try:
+        limits=validate_limits({'max_scan':args.max_scan,'max_pages':args.max_pages,'max_duration':args.max_duration,'idle_timeout':args.idle_timeout})
+    except ValueError as exc: parser.error(str(exc))
     try:
         root = Path(__file__).resolve().parent
         plan = load_manifest(args.manifest) if args.manifest else SearchPlan(
@@ -55,6 +61,7 @@ def main():
         if args.dry_run:
             for profile, query in zip(queries, prepared):
                 print(f"{profile['client_id']}: {query[1]}")
+            print("Collection limits: "+json.dumps(limits,sort_keys=True))
             print(f"Directorio de resultados: {plan.output_directory}")
             return 0
         from brand_threat_monitor.config.operator import resolve_actor
@@ -74,7 +81,7 @@ def main():
             pass
         failed = False
         for profile in queries:
-            result = collect(profile, url=args.url, max_scan=args.max_scan)
+            result = collect(profile, url=args.url, **limits, diagnostic_mode=args.diagnostic)
             result["client_id"] = profile["client_id"]
             result["client_name"] = profile["client_name"]
             result["list_evaluation"] = evaluate_result(result, lists)
@@ -82,6 +89,7 @@ def main():
             summary, summary_path = persist_result(result, output, args.database, actor=actor)
             print(f"{profile['client_id']}: {result['status']}; resultados: {result['returned_ads']}")
             print(f"JSON: {output.resolve()}")
+            if args.diagnostic: print(f"Received for diagnostics: {len(result['received_ads'])}; outside local range: {result['excluded_by_date']}")
             print(f"Resumen: {summary_path.resolve()}; SQLite: {summary['persistence']['status']}")
             failed |= bool(summary["errors"]) or result["status"] == "cancelled"
             if result["status"] == "cancelled":

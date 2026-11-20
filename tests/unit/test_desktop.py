@@ -23,7 +23,7 @@ class DesktopTests(unittest.TestCase):
         with patch('brand_threat_monitor.ui.app.collect') as collect:
             self.app.load_path(project/'profiles/searches.json')
             self.assertEqual(len(self.app.profile_table.get_children()),1)
-            self.assertEqual(self.app.plan.profiles[0]['client_id'],'cliente_pichincha')
+            self.assertEqual(self.app.plan.profiles[0]['client_id'],'sample')
             collect.assert_not_called()
 
     def test_days_override_profile_without_requesting_identity(self):
@@ -39,7 +39,7 @@ class DesktopTests(unittest.TestCase):
             (lists/p.name).write_bytes(p.read_bytes())
         with patch('brand_threat_monitor.ui.app.threading.Thread') as worker, patch('brand_threat_monitor.ui.app.messagebox.showerror', side_effect=AssertionError):
             self.app.start()
-            queries,output,actor,snapshot=worker.call_args.kwargs['args']
+            queries,output,actor,snapshot,limits=worker.call_args.kwargs['args']
             self.assertEqual(queries[0]['days_to_review'],7)
             self.assertEqual(queries[0]['search']['date_range'],{'mode':'rolling_days'})
             self.assertEqual(actor,'local_operator')
@@ -140,6 +140,23 @@ class DesktopTests(unittest.TestCase):
             self.app.show_selected()
             self.assertIn('Contenido ficticio',self.app.detail.get('1.0','end'))
             browser.assert_not_called()
+
+    def test_classification_does_not_request_confirmation(self):
+        from contextlib import nullcontext
+        row={'source':'fixture','ad_id':'123','advertiser_id':'456','client_id':None,'state':'pending_review','case_id':'case1'}
+        for decision in ('spam','attack','pending'):
+            self.app.selected=row
+            with patch('brand_threat_monitor.ui.app.messagebox.askyesno',side_effect=AssertionError('Unexpected confirmation')), \
+                 patch('brand_threat_monitor.ui.app.filedialog.askopenfilename',return_value='evidence.png'), \
+                 patch('brand_threat_monitor.ui.app.connect',return_value=nullcontext(object())), \
+                 patch('brand_threat_monitor.ui.app.initialize'), \
+                 patch('brand_threat_monitor.ui.app.load_lists'), \
+                 patch('brand_threat_monitor.ui.app.merge_database_lists'), \
+                 patch('brand_threat_monitor.ui.app.decide') as decide, \
+                 patch.object(self.app,'refresh'):
+                self.app.classify(decision)
+                self.assertEqual(decide.call_args.args[2],decision)
+                self.assertEqual(decide.call_args.kwargs['actor'],'local_operator')
 
 
 if __name__=='__main__': unittest.main()
