@@ -32,6 +32,8 @@ from .filters import FilterBar
 from .evidence import EvidenceWindow
 from .lists import ListsWindow
 from .ad_card import AdCard
+from ..search.links import associated_links
+from ..exports.links import export_external_links
 from .information import format_information, InformationWindow
 from ..review.service import case_detail
 
@@ -227,8 +229,23 @@ class Application(ttk.Frame):
         result_actions=ttk.Frame(self.audit)
         result_actions.grid(row=4,column=0,sticky='ew',pady=5)
         self.load_results_button=ttk.Button(result_actions,text='Load results JSON',command=lambda:self.guard(self.load_results))
-        self.load_results_button.pack(side='left')
-        ttk.Button(result_actions,text='Diagnostics',command=lambda:self.guard(self.open_review_diagnostics)).pack(side='left',padx=6)
+        self.links_panel=ttk.LabelFrame(result_actions,text='Links associated with the selected ad',padding=5)
+        # A separate row below the command strip keeps links visible while the card scrolls.
+        self.load_results_button.grid(row=0,column=0,sticky='w')
+        ttk.Button(result_actions,text='Diagnostics',command=lambda:self.guard(self.open_review_diagnostics)).grid(row=0,column=1,padx=6,sticky='w')
+        ttk.Button(result_actions,text='Copy external links',command=lambda:self.guard(self.copy_external_links)).grid(row=0,column=2,padx=3,sticky='w')
+        ttk.Button(result_actions,text='Export ad links',command=lambda:self.guard(lambda:self.export_links(False))).grid(row=0,column=3,padx=3,sticky='w')
+        ttk.Button(result_actions,text='Export queue links',command=lambda:self.guard(lambda:self.export_links(True))).grid(row=0,column=4,padx=3,sticky='w')
+        result_actions.columnconfigure(4,weight=1)
+        self.links_panel.grid(row=1,column=0,columnspan=5,sticky='ew',pady=(5,0))
+        self.links_panel.columnconfigure(0,weight=1); self.links_panel.rowconfigure(0,weight=1)
+        self.links_text=tk.Text(self.links_panel,height=3,width=1,wrap='word',state='disabled',font=(font_family(self,'mono'),9))
+        self.links_text.grid(row=0,column=0,sticky='ew')
+        links_scroll=ttk.Scrollbar(self.links_panel,orient='vertical',command=self.links_text.yview)
+        links_scroll.grid(row=0,column=1,sticky='ns'); self.links_text.configure(yscrollcommand=links_scroll.set)
+        self.links_text.tag_configure('external',foreground=TEAL,font=(font_family(self,'mono'),9,'bold'))
+        self.selected_external_links=[]
+        self.show_ad_links(None)
         self.card=AdCard(self.audit,on_open=self.open_library)
         self.card.grid(row=5,column=0,sticky='nsew')
         self.detail=self.card.body
@@ -255,6 +272,38 @@ class Application(ttk.Frame):
         """Keep summaries and notices wrapped to the review viewport width."""
         self.review_notice.configure(wraplength=max(200,width-24))
         self.review_summary_label.configure(wraplength=max(200,width-24))
+
+    def show_ad_links(self,payload):
+        """Display selectable associated URLs below the queue and emphasize external destinations."""
+        links=associated_links(payload) if payload is not None else []
+        self.selected_external_links=[link['url'] for link in links if link['kind']=='External destination']
+        self.links_panel.configure(text=f'Associated links | {len(self.selected_external_links)} external destination(s)' if payload is not None else 'Links associated with the selected ad')
+        self.links_text.configure(state='normal');self.links_text.delete('1.0','end')
+        if not links:self.links_text.insert('end','No associated links found.' if payload is not None else 'Select an ad to view its associated links.')
+        for link in links:
+            self.links_text.insert('end',link['kind']+': '+link['url']+'\n','external' if link['kind']=='External destination' else ())
+        self.links_text.configure(state='disabled');self.links_text.yview_moveto(0)
+
+    def copy_external_links(self):
+        """Copy unique external destinations of the selected ad without opening them."""
+        if not self.selected_external_links:raise ValueError('No external links found for the selected ad')
+        self.clipboard_clear();self.clipboard_append('\n'.join(self.selected_external_links))
+        self.status.set(f'{len(self.selected_external_links)} external link(s) copied')
+
+    def export_links(self,whole_queue=False):
+        """Export external URLs for the selected ad or current visible queue to CSV/TXT."""
+        if self.busy:raise ValueError('Wait for the search to finish before exporting links')
+        rows=list(self.rows) if whole_queue else ([self.selected] if self.selected else [])
+        if not rows:raise ValueError('No ads selected for link export')
+        filename=filedialog.asksaveasfilename(parent=self,title='Export external links',initialdir=self.root_dir/'data',
+            initialfile='queue_external_links.csv' if whole_queue else 'ad_external_links.csv',defaultextension='.csv',
+            filetypes=[('CSV with ad details','*.csv'),('Text URL list','*.txt')])
+        if not filename:return
+        with connect(self.database) as db:
+            db.execute('BEGIN')
+            result=export_external_links(db,rows,filename)
+        self.status.set(f"Exported {result['unique_urls']} external URL(s): {result['path']}")
+        return result
 
     def open_review_diagnostics(self):
         """Inspect the current database and view filters read-only, without clearing review state."""
@@ -669,6 +718,7 @@ class Application(ttk.Frame):
         """Clear structured selection details and show a readable card message."""
         self.analysis_information={}
         self.card.show_message(text)
+        self.show_ad_links(None)
 
     def set_information(self,data):
         """Retain structured details for All information and reset the visible card message."""
@@ -703,6 +753,7 @@ class Application(ttk.Frame):
                               'Related search results':runs})
         local_images=[e for case in cases for e in case['evidence'] if e.get('local_path') and e.get('type')=='local_image']
         self.card.show(payload,priority=row['priority'] or 'Conflict',evidence=local_images)
+        self.show_ad_links(payload)
 
 
     def navigate(self,direction):

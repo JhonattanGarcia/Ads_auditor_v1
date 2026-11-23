@@ -54,6 +54,8 @@ Saved results in the local SQLite database load automatically on startup and whe
 - Web images load in the background. **Retry web images** retries unavailable previews. Video thumbnails are supported; videos are not played inside the card.
 - Click the publisher photo to open its Facebook profile, or the ad image to open its Meta Ad Library page.
 - **External links in this ad** lists detected destinations and links in ad text across creatives. External destinations open only when clicked.
+- A selectable **Associated links** text box below the queue shows the selected ad's external destinations first, followed by publisher, Meta Library and media references. It stays visible independently of card scrolling.
+- **Copy external links** copies only the selected ad's external destinations. **Export ad links** saves destinations for that ad; **Export queue links** saves destinations for the currently visible queue, including current filters. CSV preserves source/ad/publisher/client IDs; TXT contains unique URLs, one per line. Exports do not fetch linked sites, modify review data or overwrite existing files.
 - Click the ad start-date column to switch between newest-first and oldest-first order.
 - **Show dates in UTC** switches the list and card between UTC and Colombia time (UTC-05:00). This changes presentation only. Review/history From/To filters use observation dates or run start dates, according to the view.
 - **All information** shows readable fields, diagnostics, observations and case history without displaying raw JSON blocks.

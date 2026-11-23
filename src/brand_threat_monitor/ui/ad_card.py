@@ -1,58 +1,22 @@
 """Tarjeta visual para anuncios, separada de la informacion tecnica completa."""
 
 import queue
-import re
 import webbrowser
 import threading
 from collections import OrderedDict
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime
-from urllib.parse import urlsplit, urlencode, parse_qs
+from urllib.parse import urlsplit, urlencode
+from ..search.links import text, web_url, external_links
 from zoneinfo import ZoneInfo
 from .theme import INK, TEAL, IVORY, PAPER, SECONDARY, BORDER, font_family
 
 
-def text(value):
-    """Extract readable text from source strings or supported nested text/body/value objects."""
-    if isinstance(value,str): return value
-    if isinstance(value,dict): return text(value.get('text') or value.get('body') or value.get('value'))
-    return ''
 
 
-def web_url(value):
-    """Accept only HTTP or HTTPS URLs with a host and without embedded credentials."""
-    if not isinstance(value,str): return ''
-    try:
-        parts=urlsplit(value.strip())
-        if parts.scheme in {'http','https'} and parts.hostname and not parts.username and not parts.password:
-            return value.strip()
-    except ValueError: pass
-    return ''
 
 
-def external_links(payload):
-    """Ad destinations and links in copy, across all creatives; exclude media assets."""
-    found=[]
-    records=[payload]+[c for c in payload.get('creatives',[]) if isinstance(c,dict)]
-    for record in records:
-        candidates=[text(record.get(k)) for k in ('link_url','destination_url','website_url')]
-        for field in ('body','title','caption','description'):
-            candidates.extend(re.findall(r"https?://[^\s<>\"']+|www\.[^\s<>\"']+",text(record.get(field))))
-        for candidate in candidates:
-            candidate=candidate.rstrip('.,;!?)')
-            if candidate.startswith('www.'): candidate='https://'+candidate
-            url=web_url(candidate)
-            if not url: continue
-            parts=urlsplit(url)
-            host=parts.hostname.lower()
-            if host in {'l.facebook.com','lm.facebook.com'}:
-                url=web_url(parse_qs(parts.query).get('u',[''])[0])
-                if not url: continue
-                host=urlsplit(url).hostname.lower()
-            if any(host==domain or host.endswith('.'+domain) for domain in ('facebook.com','fb.com','instagram.com','messenger.com')): continue
-            if url not in found: found.append(url)
-    return found
 
 
 def card_data(payload,index=0,*,display_timezone='America/Bogota'):

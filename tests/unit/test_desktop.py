@@ -319,5 +319,24 @@ class DesktopTests(unittest.TestCase):
                 self.app.load_results()
         finally: self.app.busy=False
 
+    def test_review_link_box_tracks_selection_and_exports_external_urls(self):
+        """Selected-ad links remain visible below the queue and export through the review action."""
+        path,document=self.prepare_result_import()
+        document['ads'][0]['body']='Visit https://example.com/offer'
+        path.write_text(json.dumps(document),encoding='utf-8')
+        self.app.load_results_path(path)
+        self.assertIn('External destination: https://example.com/offer',self.app.links_text.get('1.0','end'))
+        with patch('brand_threat_monitor.ui.app.webbrowser.open') as browser:
+            self.app.copy_external_links()
+            self.assertEqual(self.app.clipboard_get(),'https://example.com/offer')
+            target=self.workspace/'external.txt'
+            with patch('brand_threat_monitor.ui.app.filedialog.asksaveasfilename',return_value=str(target)):
+                self.app.export_links()
+            self.assertEqual(target.read_text(encoding='utf-8'),'https://example.com/offer\n')
+            browser.assert_not_called()
+        self.app.set_detail('No selection')
+        self.assertEqual(self.app.selected_external_links,[])
+        self.assertNotIn('https://example.com/offer',self.app.links_text.get('1.0','end'))
+
 
 if __name__=='__main__': unittest.main()
