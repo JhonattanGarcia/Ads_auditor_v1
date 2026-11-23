@@ -122,11 +122,24 @@ def main() -> int:
     for command in [bulk_import,bulk_export]:
         command.add_argument("--database",type=Path,default=Path("data/database/monitor.sqlite3"))
         command.add_argument("--lists-dir",type=Path,default=Path("lists"))
+    diagnostic=commands.add_parser('diagnose-review',help='Inspect review exclusions without modifying SQLite')
+    diagnostic.add_argument('--database',type=Path,default=Path('data/database/monitor.sqlite3'))
+    diagnostic.add_argument('--lists-dir',type=Path,default=Path('lists'))
+    diagnostic.add_argument('--output',type=Path,help='Write a new UTF-8 diagnostic report without overwriting')
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
         return 0
     try:
+        if args.command=='diagnose-review':
+            from .review.diagnostics import diagnose_review
+            result=diagnose_review(args.database,args.lists_dir)
+            rendered=json.dumps(result,ensure_ascii=False,indent=2)
+            if args.output:
+                with args.output.open('x',encoding='utf-8') as output: output.write(rendered+'\n')
+                print(str(args.output.resolve()))
+            else: print(rendered)
+            return int(bool(result['errors']))
         from .config.operator import resolve_actor, set_operator
         if args.command in {"backup-workspace","restore-workspace"}:
             from .backups.workspace import create_workspace_backup,restore_workspace_backup

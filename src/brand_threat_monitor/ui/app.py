@@ -228,6 +228,7 @@ class Application(ttk.Frame):
         result_actions.grid(row=4,column=0,sticky='ew',pady=5)
         self.load_results_button=ttk.Button(result_actions,text='Load results JSON',command=lambda:self.guard(self.load_results))
         self.load_results_button.pack(side='left')
+        ttk.Button(result_actions,text='Diagnostics',command=lambda:self.guard(self.open_review_diagnostics)).pack(side='left',padx=6)
         self.card=AdCard(self.audit,on_open=self.open_library)
         self.card.grid(row=5,column=0,sticky='nsew')
         self.detail=self.card.body
@@ -254,6 +255,14 @@ class Application(ttk.Frame):
         """Keep summaries and notices wrapped to the review viewport width."""
         self.review_notice.configure(wraplength=max(200,width-24))
         self.review_summary_label.configure(wraplength=max(200,width-24))
+
+    def open_review_diagnostics(self):
+        """Inspect the current database and view filters read-only, without clearing review state."""
+        from ..review.diagnostics import diagnose_review
+        report=diagnose_review(self.database,self.lists_dir,filters=self.queue_filters.get())
+        window=InformationWindow(self,{'Ad review diagnostics':report})
+        window.transient(self.master)
+        return report
 
     def load_results(self):
         """Select a collector results file and import it without contacting the live source."""

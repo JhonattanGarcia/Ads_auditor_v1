@@ -139,3 +139,16 @@ Latest recorded verification: **146 tests passed**. Test results do not establis
 - `docs/ARCHITECTURE.md`: module organization.
 - `docs/META_REQUEST_RESEARCH.md`: source and request research.
 - `URL_SEARCH_SPEC.md`: URL parsing and adaptation rules.
+
+
+## Diagnosing an empty Ad review queue
+
+History can contain saved runs even when no accepted ads are available for review. In **Ad review**, choose **Diagnostics** beside **Load results JSON** to inspect the actual database path, schema, SQLite integrity, accepted records, observation/query relationships, filters and exclusion causes. The diagnostic does not migrate the database or alter classifications, lists or audit history.
+
+To create a new UTF-8 report on the affected computer, run from the project root:
+
+```powershell
+.\.venv\Scripts\python.exe -m brand_threat_monitor diagnose-review --output review_diagnostic.json
+```
+
+Use `--database PATH` and `--lists-dir PATH` for a different workspace. The command refuses to overwrite an existing report. The CLI evaluates the queue without UI filters; the UI diagnostic includes the currently active view filters. Reports contain paths, counts and a bounded sample of IDs, not ad copy or evidence contents.
