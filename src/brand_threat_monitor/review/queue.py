@@ -6,6 +6,7 @@ from ..lists.service import evaluate
 
 
 def evaluate_result(result, snapshot):
+    """Evaluate accepted ads against a list snapshot and construct explainable queue counts."""
     decisions=[evaluate(ad,result.get('client_id'),snapshot) for ad in result['ads']]
     queue=sorted([d for d in decisions if d['priority'] is not None],
                  key=lambda d:d['priority'])
@@ -56,6 +57,7 @@ def database_queue(db, snapshot, *, client_id=None, filters=None):
         elif decision['priority'] is not None: queue.append(decision)
     queue.sort(key=lambda d:(d['source'],d['ad_id'],d['client_id'] or ''))
     def start_order(decision):
+        """Return a chronological sort key, falling back to observation time when start time is absent."""
         value=decision.get('delivery_start_time') or decision['last_observed_at']
         try: return datetime.fromisoformat(value).timestamp()
         except (ValueError,TypeError): return float('-inf')

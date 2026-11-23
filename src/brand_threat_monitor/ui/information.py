@@ -1,4 +1,4 @@
-﻿"""Presentacion completa de datos como campos legibles, sin sintaxis JSON."""
+"""Presentacion completa de datos como campos legibles, sin sintaxis JSON."""
 
 import json
 import re
@@ -17,6 +17,7 @@ LABELS={'ad_id':'Ad ID','advertiser_id':'Advertiser ID','run_id':'Run ID','case_
 
 
 def label(key):
+    """Convert source field names into readable labels while preserving known identifiers."""
     key=str(key)
     if key in LABELS: return LABELS[key]
     spaced=re.sub(r'(?<=[a-z0-9])(?=[A-Z])',' ',key).replace('_',' ')
@@ -26,6 +27,7 @@ def label(key):
 
 
 def decode_field(key,value):
+    """Decode supported embedded JSON fields, keeping original values when decoding is not possible."""
     if key in {'payload_json','before_json','after_json','counts_json'} and isinstance(value,str):
         try: return json.loads(value)
         except (ValueError,TypeError): pass
@@ -33,6 +35,7 @@ def decode_field(key,value):
 
 
 def scalar(value):
+    """Format primitive values without confusing absent values, empty strings, booleans and zero."""
     if value is None: return 'Not available'
     if value is True: return 'Yes'
     if value is False: return 'No'
@@ -41,8 +44,10 @@ def scalar(value):
 
 
 def format_information(data):
+    """Render nested source data as labeled readable fields instead of raw JSON blocks."""
     lines=[]
     def walk(value,name,depth):
+        """Recursively traverse nested values while retaining their section and field hierarchy."""
         value=decode_field(name,value)
         heading=label(name)
         indent='  '*depth
@@ -67,6 +72,7 @@ def format_information(data):
 
 class InformationWindow(tk.Toplevel):
     def __init__(self,parent,data,title='All analysis information'):
+        """Initialize view widgets and callbacks."""
         super().__init__(parent)
         self.title(title); self.geometry('1000x720')
         ttk.Label(self,text='Expand a section and select a field to read its full value. No links are opened automatically.').pack(anchor='w',padx=12,pady=10)
@@ -82,6 +88,7 @@ class InformationWindow(tk.Toplevel):
         self.value=tk.Text(self,height=8,wrap='word',state='disabled'); self.value.pack(fill='x',padx=12,pady=10)
         self.values={}
         def add(parent,key,value,depth):
+            """Recursively insert nested information fields into the details tree."""
             value=decode_field(key,value)
             if isinstance(value,dict): text=f'{len(value)} fields'
             elif isinstance(value,list): text=f'{len(value)} entries'
@@ -97,6 +104,7 @@ class InformationWindow(tk.Toplevel):
         ttk.Button(self,text='Copy selected value',command=self.copy).pack(anchor='e',padx=12,pady=(0,10))
 
     def select(self):
+        """Populate full details from the currently selected row or nested information field."""
         selection=self.tree.selection()
         if not selection: return
         key,value=self.values[selection[0]]
@@ -104,5 +112,6 @@ class InformationWindow(tk.Toplevel):
         self.value.configure(state='normal'); self.value.delete('1.0','end'); self.value.insert('1.0',text); self.value.configure(state='disabled')
 
     def copy(self):
+        """Copy the complete selected field value to the clipboard."""
         text=self.value.get('1.0','end-1c')
         self.clipboard_clear(); self.clipboard_append(text)

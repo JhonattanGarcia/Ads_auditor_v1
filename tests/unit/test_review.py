@@ -1,4 +1,4 @@
-﻿import tempfile
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -10,6 +10,7 @@ from brand_threat_monitor.lists.service import load_lists, merge_database_lists,
 
 class ReviewTests(unittest.TestCase):
     def setUp(self):
+        """Create isolated test fixtures and resources before each scenario."""
         self.tmp=tempfile.TemporaryDirectory()
         self.root=Path(self.tmp.name)
         self.ctx=connect(self.root/'db.sqlite3'); self.db=self.ctx.__enter__(); initialize(self.db)
@@ -21,9 +22,11 @@ class ReviewTests(unittest.TestCase):
         self.evidence=self.root/'evidence.txt'; self.evidence.write_text('Synthetic evidence')
 
     def tearDown(self):
+        """Close test resources and remove temporary files after each scenario."""
         self.ctx.__exit__(None,None,None); self.tmp.cleanup()
 
     def test_spam_only_affects_one_ad_and_cannot_repeat(self):
+        """Verify that spam only affects one ad and cannot repeat."""
         decide(self.db,self.case,'spam',actor='tester',reason='irrelevant',confirm_id='ad1')
         snap=merge_database_lists(self.db,load_lists('lists'))
         self.assertEqual(evaluate({'source':'fixture','ad_id':'ad1','advertiser_id':'publisher'},None,snap)['state'],'discarded_brown')
@@ -32,6 +35,7 @@ class ReviewTests(unittest.TestCase):
             decide(self.db,self.case,'pending',actor='tester',reason='change')
 
     def test_attack_records_evidence_and_prioritizes_other_ad(self):
+        """Verify that attack records evidence and prioritizes other ad."""
         with self.assertRaises(ValueError):
             decide(self.db,self.case,'attack',actor='tester',reason='attack',confirm_id='publisher')
         decide(self.db,self.case,'attack',actor='tester',reason='documented',confirm_id='publisher',evidence_file=self.evidence)
@@ -40,11 +44,13 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT count(*) FROM evidence').fetchone()[0],1)
 
     def test_pending_has_no_list_effect_and_can_later_classify(self):
+        """Verify that pending has no list effect and can later classify."""
         decide(self.db,self.case,'pending',actor='tester',reason='need more evidence')
         self.assertEqual(self.db.execute('SELECT count(*) FROM brownlist').fetchone()[0],0)
         decide(self.db,self.case,'spam',actor='tester',reason='irrelevant',confirm_id='ad1')
 
     def test_audit_failure_rolls_back_decision_and_list(self):
+        """Verify that audit failure rolls back decision and list."""
         with patch('brand_threat_monitor.review.service.audit',side_effect=RuntimeError('audit failed')):
             with self.assertRaises(RuntimeError):
                 decide(self.db,self.case,'spam',actor='tester',reason='spam',confirm_id='ad1')
@@ -52,6 +58,7 @@ class ReviewTests(unittest.TestCase):
         self.assertIsNone(self.db.execute('SELECT decision FROM review_cases').fetchone()[0])
 
     def test_wrong_confirmation_and_white_conflict_do_not_modify(self):
+        """Verify that wrong confirmation and white conflict do not modify."""
         with self.assertRaises(ValueError):
             decide(self.db,self.case,'spam',actor='tester',reason='spam',confirm_id='wrong')
         with self.db:

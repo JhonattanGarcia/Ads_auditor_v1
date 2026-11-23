@@ -1,4 +1,4 @@
-﻿"""Registro de acciones manuales externas; no realiza envios a Meta."""
+"""Registro de acciones manuales externas; no realiza envios a Meta."""
 
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -10,6 +10,7 @@ from .service import audit
 
 
 def record_report(db, case_id, *, actor, reported_at, status, reference=None, reason):
+    """Record a manually submitted report and external status independently of case classification."""
     actor=validate_actor(actor)
     if status not in {'sent','awaiting_response','action_confirmed','unknown'}:
         raise ValueError('Estado externo no valido')

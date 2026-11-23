@@ -3,12 +3,14 @@ import sys
 
 
 def colorref(hex_color):
+    """Convert RGB hex notation to the COLORREF byte order required by Windows DWM."""
     value=hex_color.lstrip('#')
     red,green,blue=(int(value[index:index+2],16) for index in (0,2,4))
     return red | green<<8 | blue<<16
 
 
 def style_native_frame(window):
+    """Apply native Windows frame colors when supported without replacing system window controls."""
     if sys.platform!='win32': return False
     import ctypes
     from ctypes import wintypes
@@ -23,6 +25,7 @@ def style_native_frame(window):
         handle=user32.GetAncestor(window.winfo_id(),2)
         if not handle: return False
         def set_attribute(attribute,value):
+            """Pass a DWORD window attribute to DWM and report whether Windows accepted it."""
             data=wintypes.DWORD(value)
             return dwm.DwmSetWindowAttribute(handle,attribute,ctypes.byref(data),ctypes.sizeof(data))==0
         dark=set_attribute(20,1)
@@ -35,6 +38,8 @@ def style_native_frame(window):
 
 
 def install_native_frame(window):
+    """Bind native frame styling to top-level Map events so remapped windows retain the theme."""
     def apply(event):
+        """Style the mapped top-level window while ignoring Map events from its child widgets."""
         if event.widget is window: style_native_frame(window)
     window.bind('<Map>',apply,add='+')

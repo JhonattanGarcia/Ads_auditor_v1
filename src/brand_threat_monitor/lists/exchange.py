@@ -1,4 +1,4 @@
-﻿"""Intercambio masivo de listas; validacion completa antes de cambios."""
+"""Intercambio masivo de listas; validacion completa antes de cambios."""
 
 import copy
 import csv
@@ -24,11 +24,13 @@ MAX_ENTRIES=10000
 
 
 def empty_documents():
+    """Build empty versioned whitelist, blacklist and brownlist documents for exchange."""
     return {kind:{'schema_version':'1.0','list_type':kind,'identity_fields':['source',key],'entries':[]}
             for kind,key in KINDS.items()}
 
 
 def validate_bundle(documents):
+    """Validate all three list documents and reject inconsistent or unsupported bundle content."""
     if set(documents)!=set(KINDS): raise ValueError('Bundle must contain all three list types')
     if sum(len(documents[k].get('entries',[])) for k in KINDS)>MAX_ENTRIES:
         raise ValueError('Import exceeds the 10000-entry limit')
@@ -40,6 +42,7 @@ def validate_bundle(documents):
 
 
 def read_lists_file(path):
+    """Parse a bounded JSON or CSV import and validate its list-exchange structure."""
     path=Path(path)
     if path.stat().st_size>MAX_FILE_BYTES: raise ValueError('List file exceeds 5 MiB')
     if path.suffix.lower()=='.json':
@@ -76,10 +79,12 @@ def read_lists_file(path):
 
 
 def document_hash(documents):
+    """Hash canonical document content to recognize idempotent list reimports."""
     return hashlib.sha256(json.dumps(documents,sort_keys=True,ensure_ascii=False).encode('utf-8')).hexdigest()
 
 
 def plan_import(db,snapshot,documents):
+    """Preview additions, duplicates and conflicts without changing database state."""
     validate_bundle(documents)
     effective=merge_database_lists(db,snapshot)
     additions=[]; skipped=0
@@ -114,6 +119,7 @@ def plan_import(db,snapshot,documents):
 
 
 def import_lists(db,snapshot,documents,source_file,backup_directory,*,actor,reason):
+    """Validate and back up before atomically importing list entries with provenance and audit."""
     actor=validate_actor(actor)
     if not reason or not reason.strip(): raise ValueError('Import reason is required')
     fingerprint=document_hash(documents)
@@ -144,6 +150,7 @@ def import_lists(db,snapshot,documents,source_file,backup_directory,*,actor,reas
 
 
 def export_lists(db,snapshot,path):
+    """Export effective lists as JSON or CSV without overwriting an existing destination."""
     path=Path(path)
     if path.suffix.lower() not in {'.json','.csv'}: raise ValueError('Use .json or .csv')
     if path.exists(): raise ValueError('Choose a new export file')

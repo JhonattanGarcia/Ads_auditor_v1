@@ -13,6 +13,7 @@ class MetaCollector:
     capabilities = CollectorCapabilities(server_date_filter=True)
 
     def __init__(self, *, timeout: int = 20, max_retries: int = 1):
+        """Initialize the provider adapter and network client without running a search."""
         from meta_ads_collector import MetaAdsCollector
         self.request_callback = None
         self.version = version("meta-ads-collector")
@@ -20,9 +21,11 @@ class MetaCollector:
 
     @property
     def stats(self):
+        """Expose provider collection counters without copying or altering them."""
         return self._backend.stats
 
     def __enter__(self):
+        """Enter the collector context and return the resource used for search iteration."""
         try:
             self._backend.__enter__()
         except Exception as exc:
@@ -30,16 +33,19 @@ class MetaCollector:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """Release collector resources on context exit, including when iteration raises an error."""
         self._backend.__exit__(exc_type, exc_value, traceback)
 
     def search(self, *, query: str, country: str, max_results: int,
                cancel_event: Event | None = None, start_date=None, end_date=None) -> Iterator[CollectedAd]:
+        """Yield normalized provider ads while enforcing optional page budgets and restoring temporary client hooks."""
         if cancel_event is not None and cancel_event.is_set():
             raise CollectorCancelled("Consulta cancelada antes de iniciar")
         original_page_search=None
         if getattr(self,'max_pages',None) is not None:
             original_page_search=self._backend.client.search_ads
             def limited_page(**kwargs):
+                """Stop pagination at the configured page budget without fetching an additional page."""
                 if self._backend.stats.get('pages_fetched',0)>=self.max_pages:
                     self._backend.stats['page_limit_reached']=True
                     return {'ads':[]},None

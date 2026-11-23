@@ -13,6 +13,7 @@ from brand_threat_monitor.review.service import open_case, decide, case_detail
 
 class HistoryDesktopTests(unittest.TestCase):
     def setUp(self):
+        """Create isolated test fixtures and resources before each scenario."""
         self.tmp=tempfile.TemporaryDirectory(); self.database=Path(self.tmp.name)/'db.sqlite3'
         with connect(self.database) as db:
             initialize(db)
@@ -26,9 +27,11 @@ class HistoryDesktopTests(unittest.TestCase):
         self.window.withdraw()
 
     def tearDown(self):
+        """Close test resources and remove temporary files after each scenario."""
         self.window.destroy(); self.root.destroy(); self.tmp.cleanup()
 
     def test_history_shows_run_and_case_without_mutations(self):
+        """Verify that history shows run and case without mutations."""
         self.assertEqual(len(self.window.run_table.get_children()),1)
         self.window.run_table.selection_set('run'); self.window.show_run()
         self.assertIn('synthetic',self.window.run_detail.get('1.0','end'))
@@ -38,6 +41,7 @@ class HistoryDesktopTests(unittest.TestCase):
             self.assertEqual(case_detail(db,self.case_id)['case']['decision'],'spam')
 
     def test_correction_button_uses_transactional_service(self):
+        """Verify that correction button uses transactional service."""
         self.window.case_table.selection_set(self.case_id); self.window.show_case()
         with patch('brand_threat_monitor.ui.history.simpledialog.askstring',return_value='Wrong classification'), patch('brand_threat_monitor.ui.history.messagebox.askyesno',return_value=True):
             self.window.correct()
@@ -48,6 +52,7 @@ class HistoryDesktopTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT active FROM brownlist').fetchone()[0],0)
 
     def test_history_exports_selected_case(self):
+        """Verify that history exports selected case."""
         self.window.case_table.selection_set(self.case_id); self.window.show_case()
         output=Path(self.tmp.name)/'case.json'
         with patch('brand_threat_monitor.ui.history.filedialog.asksaveasfilename',return_value=str(output)), patch('brand_threat_monitor.ui.history.messagebox.showinfo'):
@@ -55,6 +60,7 @@ class HistoryDesktopTests(unittest.TestCase):
         self.assertEqual(json.loads(output.read_text())['case']['case_id'],self.case_id)
 
     def test_history_filters_apply_to_both_tabs_and_can_be_cleared(self):
+        """Verify that history filters apply to both tabs and can be cleared."""
         self.window.filters.values['criterion'].set('does-not-exist')
         self.window.refresh()
         self.assertEqual(len(self.window.run_table.get_children()),0)
@@ -65,6 +71,7 @@ class HistoryDesktopTests(unittest.TestCase):
         self.assertEqual(len(self.window.case_table.get_children()),1)
 
     def test_cancelled_correction_preserves_case(self):
+        """Verify that cancelled correction preserves case."""
         self.window.case_table.selection_set(self.case_id); self.window.show_case()
         with patch('brand_threat_monitor.ui.history.simpledialog.askstring',return_value=None):
             self.window.correct()
@@ -74,9 +81,11 @@ class HistoryDesktopTests(unittest.TestCase):
 
 class AdPresentationTests(unittest.TestCase):
     def test_missing_content_is_explicit(self):
+        """Verify that missing content is explicit."""
         self.assertIn('Not available',format_ad({}))
 
     def test_content_and_urls_are_displayed_passively(self):
+        """Verify that content and urls are displayed passively."""
         text=format_ad({'page':{'name':'Synthetic advertiser'},'creatives':[{'body':'Example text','link_url':'https://example.com','image_url':'https://example.com/image.png'}]})
         self.assertIn('Example text',text)
         self.assertIn('https://example.com',text)

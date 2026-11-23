@@ -1,4 +1,4 @@
-﻿"""Recoge resultados sin fechas en servidor y postfiltra la captura local."""
+"""Recoge resultados sin fechas en servidor y postfiltra la captura local."""
 from datetime import datetime
 from uuid import uuid4
 from urllib.parse import urlencode,urlsplit,urlunsplit,parse_qsl
@@ -10,6 +10,7 @@ from ..search.post_filter import post_filter
 
 
 def collect(profile, *, url=None, max_scan=30, collector_factory=BoundedMetaCollector, cancel_event=None, progress_callback=None, diagnostic_mode=False, max_pages=None, max_duration=None, idle_timeout=None):
+    """Capture bounded source results and post-filter locally, preserving received data on handled failures."""
     if type(max_scan) is not int or max_scan<1: raise ValueError('max_scan must be a positive integer')
     from ..config.limits import validate_limits
     overrides={key:value for key,value in {'max_pages':max_pages,'max_duration':max_duration,'idle_timeout':idle_timeout}.items() if value is not None}

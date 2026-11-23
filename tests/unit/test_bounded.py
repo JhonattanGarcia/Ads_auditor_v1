@@ -1,4 +1,4 @@
-﻿import threading
+import threading
 import time
 import unittest
 from datetime import datetime, timezone
@@ -11,26 +11,31 @@ from brand_threat_monitor.ingestion.collector import collect
 
 
 def one_ad_then_stall(sender,*args):
+    """Send one fixture ad and stall to exercise supervisor timeout handling."""
     sender.send(('ad',CollectedAd('synthetic',datetime.now(timezone.utc),Advertiser('page'),{})))
     time.sleep(30)
 
 
 def no_response(sender,*args):
+    """Simulate an unresponsive source for timeout and cancellation scenarios."""
     time.sleep(30)
 
 
 def finished(sender,*args):
+    """Send a successful empty completion event through the fixture pipe."""
     sender.send(('done',{'ads_collected':0,'errors':0}))
     sender.close()
 
 
 def page_then_stall(sender,*args):
+    """Send fixture page counters before stalling to test their preservation on timeout."""
     sender.send(('page',{'pages_fetched':2,'page_limit_reached':False}))
     time.sleep(30)
 
 
 class BoundedTests(unittest.TestCase):
     def test_idle_timeout_keeps_received_result(self):
+        """Verify that idle timeout keeps received result."""
         profile=json.loads((Path(__file__).resolve().parents[2]/'profiles/example.json').read_text(encoding='utf-8-sig'))
         factory=lambda **kwargs:BoundedMetaCollector(**kwargs,idle_timeout=1.5,max_duration=5,worker_target=one_ad_then_stall)
         started=time.monotonic()
@@ -41,6 +46,7 @@ class BoundedTests(unittest.TestCase):
         self.assertLess(time.monotonic()-started,8)
 
     def test_total_timeout_terminates_waiting_process(self):
+        """Verify that total timeout terminates waiting process."""
         collector=BoundedMetaCollector(max_duration=1,idle_timeout=10,worker_target=no_response)
         with collector:
             with self.assertRaises(CollectorTimeout):
@@ -48,6 +54,7 @@ class BoundedTests(unittest.TestCase):
         self.assertIsNone(collector.process)
 
     def test_cancel_interrupts_wait_without_waiting_for_network(self):
+        """Verify that cancel interrupts wait without waiting for network."""
         event=threading.Event()
         timer=threading.Timer(0.5,event.set); timer.start()
         collector=BoundedMetaCollector(worker_target=no_response)
@@ -59,10 +66,12 @@ class BoundedTests(unittest.TestCase):
         self.assertIsNone(collector.process)
 
     def test_empty_completed_search_is_not_a_timeout(self):
+        """Verify that empty completed search is not a timeout."""
         with BoundedMetaCollector(worker_target=finished) as collector:
             self.assertEqual(list(collector.search(query='test',country='CO',max_results=10)),[])
 
     def test_page_counts_survive_timeout(self):
+        """Verify that page counts survive timeout."""
         with BoundedMetaCollector(max_pages=3,max_duration=2,idle_timeout=1,worker_target=page_then_stall) as collector:
             with self.assertRaises(CollectorTimeout):
                 list(collector.search(query='test',country='CO',max_results=100))

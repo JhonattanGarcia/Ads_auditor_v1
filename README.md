@@ -48,7 +48,7 @@ Each enabled search receives its own budget. The first applicable limit stops co
 
 ## Ad review
 
-Saved results load automatically on startup and when entering **Ad review**.
+Saved results in the local SQLite database load automatically on startup and when entering **Ad review**. A copied `results.json` is not imported automatically: use **Load results JSON** below the queue to select and import it. Imports clear view filters, preserve existing decisions and skip identical runs without duplicates. Choose the collector result file, not `run_summary.json`; the source file is not modified.
 
 - The card uses fixed publisher and ad image panels, each occupying one quarter of the width. Text and metadata occupy the remaining half with independent scrolling.
 - Web images load in the background. **Retry web images** retries unavailable previews. Video thumbnails are supported; videos are not played inside the card.
@@ -134,6 +134,7 @@ Workspace backups include the database, profiles, lists, saved searches and refe
 
 Latest recorded verification: **146 tests passed**. Test results do not establish complete Meta coverage.
 
+- [Developer manual (PDF)](docs/Ad_monitor_Manual_del_desarrollador.pdf): architecture, methods, external connections, SQLite schema and maintenance (Spanish).
 - `ROADMAP.md`: completion status of configurable collection limits.
 - `docs/ARCHITECTURE.md`: module organization.
 - `docs/META_REQUEST_RESEARCH.md`: source and request research.

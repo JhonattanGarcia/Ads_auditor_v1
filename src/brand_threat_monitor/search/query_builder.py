@@ -5,6 +5,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 def prepare(profile, original_url=None, now=None):
+    """Adapt a validated Meta Library URL to profile criteria and inclusive local date boundaries."""
     zone = ZoneInfo(profile.get("timezone", "America/Bogota"))
     today = (now or datetime.now(zone)).astimezone(zone).date()
     search = profile.get("search", {})

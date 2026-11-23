@@ -18,6 +18,7 @@ DATABASE='data/database/monitor.sqlite3'
 
 
 def reject_links(path):
+    """Reject symbolic links and junctions so backup operations stay within explicit paths."""
     path=Path(path).absolute()
     for part in [path,*path.parents]:
         if part.is_symlink() or (hasattr(part,'is_junction') and part.is_junction()):
@@ -25,6 +26,7 @@ def reject_links(path):
 
 
 def copy_checked(source,target,expected_hash=None):
+    """Copy a regular file and record its size and digest for subsequent verification."""
     source,target=Path(source),Path(target)
     reject_links(source)
     if not source.is_file(): raise ValueError(f'Required file is missing: {source}')
@@ -37,6 +39,7 @@ def copy_checked(source,target,expected_hash=None):
 
 
 def directory_files(root,json_only=False):
+    """Enumerate regular files under the requested directory while rejecting linked paths."""
     root=Path(root)
     if not root.exists(): return []
     reject_links(root)
@@ -50,6 +53,7 @@ def directory_files(root,json_only=False):
 
 
 def safe_member(name):
+    """Resolve a manifest member while rejecting absolute paths and traversal outside the backup."""
     if not isinstance(name,str) or not name or '\\' in name or ':' in name:
         raise ValueError('Invalid backup member path')
     path=PurePosixPath(name)
@@ -65,6 +69,7 @@ def safe_member(name):
 
 
 def create_workspace_backup(workspace,directory,*,actor):
+    """Package SQLite, configuration and referenced evidence with a verified manifest."""
     actor=validate_actor(actor)
     reject_links(workspace); reject_links(directory)
     workspace,directory=Path(workspace).resolve(),Path(directory).resolve()
@@ -110,6 +115,7 @@ def create_workspace_backup(workspace,directory,*,actor):
 
 
 def verify_workspace_backup(backup):
+    """Validate manifest members, file hashes and database integrity before restoration."""
     backup=Path(backup).absolute(); reject_links(backup)
     reject_links(backup/'manifest.json')
     manifest=json.loads((backup/'manifest.json').read_text(encoding='utf-8'))
@@ -141,6 +147,7 @@ def verify_workspace_backup(backup):
 
 
 def restore_workspace_backup(backup,target,*,actor):
+    """Restore verified workspace data into a new directory and rebase evidence paths."""
     actor=validate_actor(actor)
     reject_links(target)
     target=Path(target).absolute()

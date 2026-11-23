@@ -8,6 +8,7 @@ DEFAULT_OPERATOR_FILE = Path("data/operator.json")
 
 
 def validate_actor(actor):
+    """Validate and normalize the nonempty audit actor required for attributed changes."""
     if not isinstance(actor, str) or not actor.strip() or len(actor.strip()) > 100:
         raise ValueError("Analista: indicar identificador de 1 a 100 caracteres")
     if any(ord(c) < 32 for c in actor):
@@ -16,6 +17,7 @@ def validate_actor(actor):
 
 
 def set_operator(actor, path=DEFAULT_OPERATOR_FILE):
+    """Persist the validated local operator used by CLI commands without an explicit actor."""
     actor = validate_actor(actor)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -32,6 +34,7 @@ def set_operator(actor, path=DEFAULT_OPERATOR_FILE):
 
 
 def resolve_actor(explicit=None, path=DEFAULT_OPERATOR_FILE):
+    """Resolve an explicit actor or the saved operator; reject missing audit attribution."""
     if explicit is not None:
         return validate_actor(explicit)
     try:

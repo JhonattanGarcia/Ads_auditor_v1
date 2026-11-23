@@ -1,4 +1,4 @@
-﻿import json
+import json
 import tkinter as tk
 import unittest
 
@@ -7,6 +7,7 @@ from brand_threat_monitor.ui.information import format_information,InformationWi
 
 class InformationTests(unittest.TestCase):
     def test_nested_fields_are_complete_without_json_syntax(self):
+        """Verify that nested fields are complete without json syntax."""
         data={'advertiser_id':'00123','creatives':[{'body':'Full ad text','unknown_source_field':{'metric':0,'active':False}}],
               'targeting':{'countries':['CO','BR']},'missing':None}
         text=format_information(data)
@@ -16,6 +17,7 @@ class InformationTests(unittest.TestCase):
         self.assertNotIn('"advertiser_id"',text)
 
     def test_serialized_audit_payloads_are_decoded_as_fields(self):
+        """Verify that serialized audit payloads are decoded as fields."""
         text=format_information({'before_json':json.dumps({'decision':'spam'}),
                                  'after_json':json.dumps({'decision':None})})
         self.assertIn('Before change',text)
@@ -24,11 +26,13 @@ class InformationTests(unittest.TestCase):
         self.assertNotIn('{',text)
 
     def test_false_zero_empty_and_missing_remain_distinct(self):
+        """Verify that false zero empty and missing remain distinct."""
         text=format_information({'flag':False,'count':0,'text':'','values':[],'missing':None})
         for value in ['Flag: No','Count: 0','(empty text)','None recorded','Not available']:
             self.assertIn(value,text)
 
     def test_unknown_fields_and_long_values_can_be_read_in_full(self):
+        """Verify that unknown fields and long values can be read in full."""
         root=tk.Tk(); root.withdraw()
         value='Long source text\n'+'x'*2000
         window=InformationWindow(root,{'source_details':{'new_field':value}}); window.withdraw()

@@ -9,6 +9,7 @@ class ServerDateFilterMismatch(CollectorError):
 
 
 def install_date_filter(client, minimum, maximum, callback=None):
+    """Temporarily wrap GraphQL payload construction to inject dates on every search page."""
     low=date.fromisoformat(minimum) if minimum else None
     high=date.fromisoformat(maximum) if maximum else None
     if low is None: raise ValueError('A minimum start date is required')
@@ -17,6 +18,7 @@ def install_date_filter(client, minimum, maximum, callback=None):
     original=client._build_graphql_payload
 
     def build(doc_id, variables, friendly_name):
+        """Inject the requested start-date range into search pagination payloads only."""
         if friendly_name=='AdLibrarySearchPaginationQuery':
             variables={**variables,'startDate':dict(interval)}
             if callback:

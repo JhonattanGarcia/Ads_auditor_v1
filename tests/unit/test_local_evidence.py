@@ -1,4 +1,4 @@
-﻿import tempfile
+import tempfile
 import tkinter as tk
 import unittest
 from pathlib import Path
@@ -12,6 +12,7 @@ from brand_threat_monitor.ui.evidence import EvidenceWindow
 
 class LocalEvidenceTests(unittest.TestCase):
     def setUp(self):
+        """Create isolated test fixtures and resources before each scenario."""
         self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name)
         self.image=self.root/'image.png'; Image.new('RGB',(40,30),'blue').save(self.image)
         self.database=self.root/'data/database/monitor.sqlite3'
@@ -21,9 +22,11 @@ class LocalEvidenceTests(unittest.TestCase):
             self.db.execute("INSERT INTO review_cases(case_id,source,ad_id,reviewer,status) VALUES ('case','fixture','ad','tester','pending_review')")
 
     def tearDown(self):
+        """Close test resources and remove temporary files after each scenario."""
         self.ctx.__exit__(None,None,None); self.tmp.cleanup()
 
     def test_preview_detects_real_format_and_preserves_original(self):
+        """Verify that preview detects real format and preserves original."""
         renamed=self.root/'image.bin'; renamed.write_bytes(self.image.read_bytes())
         before=renamed.read_bytes(); preview=load_preview(renamed)
         self.assertEqual(preview.format,'PNG')
@@ -31,20 +34,24 @@ class LocalEvidenceTests(unittest.TestCase):
         self.assertEqual(renamed.read_bytes(),before)
 
     def test_remote_and_missing_files_rejected(self):
+        """Verify that remote and missing files rejected."""
         for value in ['https://example.com/image.png','file:///C:/image.png',r'\\server\share\image.png',str(self.root/'missing.png')]:
             with self.subTest(value=value),self.assertRaises(ValueError): load_preview(value)
 
     def test_byte_and_pixel_limits(self):
+        """Verify that byte and pixel limits."""
         with patch('brand_threat_monitor.evidence.service.MAX_BYTES',8):
             with self.assertRaises(ValueError): load_preview(self.image)
         with patch('brand_threat_monitor.evidence.service.MAX_PIXELS',10):
             with self.assertRaises(ValueError): load_preview(self.image)
 
     def test_corrupt_or_nonimage_rejected(self):
+        """Verify that corrupt or nonimage rejected."""
         invalid=self.root/'fake.png'; invalid.write_text('<html>not an image</html>')
         with self.assertRaises(ValueError): load_preview(invalid)
 
     def test_attach_copies_audits_and_checks_hash(self):
+        """Verify that attach copies audits and checks hash."""
         directory=self.root/'data/evidence'
         evidence_id=attach_image(self.db,'case',self.image,directory,actor='tester',reason='Synthetic screenshot')
         row=self.db.execute('SELECT * FROM evidence WHERE evidence_id=?',(evidence_id,)).fetchone()
@@ -57,6 +64,7 @@ class LocalEvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError): load_preview(path,expected_hash=row['hash'])
 
     def test_failed_audit_removes_managed_copy(self):
+        """Verify that failed audit removes managed copy."""
         directory=self.root/'data/evidence'
         with patch('brand_threat_monitor.evidence.service.audit',side_effect=RuntimeError('audit failure')):
             with self.assertRaises(RuntimeError):
@@ -65,11 +73,13 @@ class LocalEvidenceTests(unittest.TestCase):
         self.assertEqual(list(directory.iterdir()),[])
 
     def test_unknown_case_leaves_no_copy(self):
+        """Verify that unknown case leaves no copy."""
         directory=self.root/'data/evidence'
         with self.assertRaises(ValueError): attach_image(self.db,'unknown',self.image,directory,actor='tester',reason='test')
         self.assertFalse(directory.exists())
 
     def test_ui_requires_explicit_preview(self):
+        """Verify that ui requires explicit preview."""
         evidence_id=attach_image(self.db,'case',self.image,self.root/'data/evidence',actor='tester',reason='Synthetic')
         root=tk.Tk(); root.withdraw()
         window=EvidenceWindow(root,self.database,'case',self.root/'data/evidence'); window.withdraw()

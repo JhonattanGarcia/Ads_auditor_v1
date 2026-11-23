@@ -25,6 +25,7 @@ from ..lists.service import load_lists, merge_database_lists
 from ..review.queue import database_queue, evaluate_result, clear_unreviewed
 from ..review.service import open_case, decide
 from ..storage.database import connect, initialize
+from ..storage.repositories import import_result
 from .audit import format_ad
 from .history import HistoryWindow
 from .filters import FilterBar
@@ -45,6 +46,7 @@ REASONS = {
 
 
 def ad_start(row,display_timezone='America/Bogota'):
+    """Convert an aware ad start timestamp to the display timezone; return None for missing or invalid dates."""
     try:
         value=datetime.fromisoformat(row.get('delivery_start_time') or '')
         if value.tzinfo is None: return None
@@ -54,6 +56,7 @@ def ad_start(row,display_timezone='America/Bogota'):
 
 class Application(ttk.Frame):
     def __init__(self, master, root_dir):
+        """Initialize view widgets and callbacks."""
         self.theme=apply_theme(master)
         super().__init__(master, padding=12,style='Shell.TFrame')
         self.root_dir=Path(root_dir).resolve()
@@ -93,6 +96,7 @@ class Application(ttk.Frame):
         self.auto_refresh()
 
     def build_home(self):
+        """Build editable searches, collection budgets, repeat controls and the execution log."""
         bar=ttk.Frame(self.home); bar.pack(fill='x')
         self.load_button=ttk.Button(bar,text='Load search list',command=self.load)
         self.load_button.pack(side='left')
@@ -155,6 +159,7 @@ class Application(ttk.Frame):
         self.log.pack(fill='both',expand=True,pady=10)
 
     def build_audit(self):
+        """Build the review toolbar, filtered queue, fixed image card and classification controls."""
         self.show_utc=tk.BooleanVar(value=False)
         self.date_sort=None
         self.audit.columnconfigure(0,weight=1)
@@ -186,9 +191,11 @@ class Application(ttk.Frame):
         self.history_button.pack(side='left',padx=(6,0))
         self.filter_tooltip=None
         def hide_tooltip(event=None):
+            """Destroy the current toolbar tooltip and clear its retained window reference."""
             if self.filter_tooltip is not None:
                 self.filter_tooltip.destroy(); self.filter_tooltip=None
         def show_tooltip(event=None):
+            """Position descriptive help below the focused or hovered filter/history icon."""
             hide_tooltip()
             button=event.widget if event else self.filter_button
             caption='History / corrections / reports' if button is self.history_button else 'Show / hide filters'
@@ -217,6 +224,10 @@ class Application(ttk.Frame):
         queue_x.grid(row=1,column=0,sticky='ew')
         self.queue_table.configure(yscrollcommand=queue_y.set,xscrollcommand=queue_x.set)
         self.queue_table.bind('<<TreeviewSelect>>',lambda event:self.guard(self.show_selected))
+        result_actions=ttk.Frame(self.audit)
+        result_actions.grid(row=4,column=0,sticky='ew',pady=5)
+        self.load_results_button=ttk.Button(result_actions,text='Load results JSON',command=lambda:self.guard(self.load_results))
+        self.load_results_button.pack(side='left')
         self.card=AdCard(self.audit,on_open=self.open_library)
         self.card.grid(row=5,column=0,sticky='nsew')
         self.detail=self.card.body
@@ -235,14 +246,57 @@ class Application(ttk.Frame):
         self.audit.bind('<Configure>',lambda event:self.resize_review(event.width))
 
     def toggle_review_filters(self):
+        """Show or hide advanced review filters without clearing their values."""
         if self.queue_filters.winfo_manager(): self.queue_filters.grid_remove()
         else: self.queue_filters.grid()
 
     def resize_review(self,width):
+        """Keep summaries and notices wrapped to the review viewport width."""
         self.review_notice.configure(wraplength=max(200,width-24))
         self.review_summary_label.configure(wraplength=max(200,width-24))
 
+    def load_results(self):
+        """Select a collector results file and import it without contacting the live source."""
+        if self.busy: raise ValueError('Wait for the search to finish before importing results')
+        filename=filedialog.askopenfilename(parent=self,title='Load search results',initialdir=self.root_dir/'data/results',filetypes=[('JSON results','*.json')])
+        if filename: self.load_results_path(filename)
+
+    def load_results_path(self,filename):
+        """Import validated results idempotently, clear view filters and display eligible saved ads."""
+        if self.busy: raise ValueError('Wait for the search to finish before importing results')
+        document=read_json(filename)
+        required={'schema_version','run_id','source','started_at','status','coverage','country','query','ads','observations'}
+        missing=required-set(document)
+        if missing:
+            raise ValueError('Select a collector results.json, not a summary or search list. Missing fields: '+', '.join(sorted(missing)))
+        if not isinstance(document['ads'],list) or not isinstance(document['observations'],list):
+            raise ValueError('Results ads and observations must be lists')
+        # Validate the review configuration before committing the imported run.
+        load_lists(self.lists_dir)
+        with connect(self.database) as db:
+            initialize(db)
+            try:
+                imported=import_result(db,document,actor='local_operator')
+            except (KeyError,TypeError) as exc:
+                raise ValueError(f'Invalid results content or missing matching observations: {exc}') from exc
+        for value in self.queue_filters.values.values(): value.set('')
+        self.refresh()
+        ids={str(ad['ad_id']) for ad in document['ads']}
+        target=next((i for i,row in enumerate(self.rows) if row['source']==document['source'] and row['ad_id'] in ids and
+                     (document.get('client_id') is None or row['client_id']==document['client_id'])),None)
+        if target is not None:
+            self.queue_table.selection_set(str(target)); self.queue_table.see(str(target)); self.show_selected()
+        else:
+            self.queue_table.selection_remove(*self.queue_table.selection())
+            self.selected=None
+            self.position.set('No ads selected')
+            self.set_information({'Imported search results':document,'Review queue note':'No eligible ads from this file. Already reviewed, cleared or list-excluded records stay out of the review queue; date-excluded records remain diagnostics.'})
+        action='Imported' if imported['imported'] else 'Already saved'
+        self.status.set(f"{action}: {Path(filename).name} | {len(document['ads'])} accepted ads; {imported.get('new_ads',0)} new. View filters cleared.")
+        return imported
+
     def auto_refresh(self):
+        """Load saved review data when idle and show inline empty/error states without blocking startup."""
         if self.busy: return
         if not self.database.exists():
             self.review_summary.set('No saved results yet. Run a search from Search setup.')
@@ -255,17 +309,21 @@ class Application(ttk.Frame):
             self.set_detail(str(exc))
 
     def review_tab_changed(self,event=None):
+        """Refresh saved results when the Ad review tab becomes active."""
         if self.tabs.select()==str(self.audit): self.auto_refresh()
 
     def guard(self, action):
+        """Run a UI callback and display any raised error in a parented dialog."""
         try: return action()
         except Exception as exc: messagebox.showerror('Unable to complete the action',str(exc),parent=self)
 
     def load(self):
+        """Prompt for a search-list file and load it after explicit selection."""
         filename=filedialog.askopenfilename(parent=self,title='Select a search list or manifest',initialdir=self.root_dir/'profiles',filetypes=[('JSON','*.json')])
         if filename: self.guard(lambda:self.load_path(filename))
 
     def load_path(self, filename):
+        """Validate and restore searches and settings while suppressing intermediate autosaves."""
         if self.busy: raise ValueError('Wait for the current search to finish')
         document=read_json(filename)
         if document.get('type')=='editable_search_list':
@@ -293,23 +351,27 @@ class Application(ttk.Frame):
         self.status.set(f'{len(self.search_rows.rows)} searches loaded. Output folder: {plan.output_directory}')
 
     def render_searches(self):
+        """Rebuild execution rows from the editable model and persist the current list."""
         self.profile_table.delete(*self.profile_table.get_children())
         for row in self.search_rows.rows:
             self.profile_table.insert('','end',iid=row['id'],values=('[X]' if row['enabled'] else '[ ]',row['country'],row['criterion'],'Delete'))
         self.autosave_searches()
 
     def select_search(self):
+        """Populate country, criteria and enabled controls from the selected search row."""
         selected=self.profile_table.selection()
         if not selected: return
         row=self.search_rows.get(selected[0])
         self.row_country.set(row['country']); self.row_criterion.set(row['criterion']); self.row_enabled.set(row['enabled'])
 
     def add_search(self):
+        """Validate and append a search, persist its row and clear the criteria editor."""
         if self.busy: raise ValueError('Wait for the current search to finish')
         self.search_rows.add(self.row_country.get(),self.row_criterion.get(),self.row_enabled.get())
         self.render_searches(); self.row_criterion.set('')
 
     def update_search(self):
+        """Update the selected row and preserve its selection after saving."""
         if self.busy: raise ValueError('Wait for the current search to finish')
         selected=self.profile_table.selection()
         if not selected: raise ValueError('Select a search to edit')
@@ -318,6 +380,7 @@ class Application(ttk.Frame):
         self.render_searches(); self.profile_table.selection_set(row_id)
 
     def toggle_search(self):
+        """Toggle the selected execution row while idle and persist its enabled state."""
         if self.busy: return
         selected=self.profile_table.selection()
         if selected:
@@ -325,12 +388,14 @@ class Application(ttk.Frame):
             self.render_searches(); self.profile_table.selection_set(row['id']); self.select_search()
 
     def delete_search(self):
+        """Delete the confirmed search row while preventing edits during active collection."""
         if self.busy: return
         selected=self.profile_table.selection()
         if selected and messagebox.askyesno('Delete search','Delete the selected search?',parent=self):
             self.search_rows.remove(selected[0]); self.render_searches()
 
     def search_click(self,event):
+        """Route enabled and delete-column clicks to the selected row action."""
         row=self.profile_table.identify_row(event.y)
         column=self.profile_table.identify_column(event.x)
         if not row: return
@@ -339,6 +404,7 @@ class Application(ttk.Frame):
         elif column=='#4': self.guard(self.delete_search)
 
     def enabled_changed(self):
+        """Apply Enabled to the selected row, or keep it as the default for the next new row."""
         if self.busy:
             self.select_search()
             return
@@ -351,6 +417,7 @@ class Application(ttk.Frame):
         # Without a selected row, the checkbox sets the enabled state of the next Add.
 
     def search_list_document(self):
+        """Serialize searches, output directory, day window, budgets and automatic-repeat settings."""
         import copy
         profiles=[]
         for row in self.search_rows.rows:
@@ -367,6 +434,7 @@ class Application(ttk.Frame):
 
     @staticmethod
     def validate_repeat(value):
+        """Validate a finite repeat frequency between one hour and one year and a boolean enabled flag."""
         if not isinstance(value,dict) or type(value.get('enabled')) is not bool:
             raise ValueError('Invalid automatic repeat settings')
         hours=value.get('hours',24)
@@ -375,11 +443,13 @@ class Application(ttk.Frame):
         return {'enabled':value['enabled'],'hours':hours}
 
     def repeat_settings(self):
+        """Parse and validate the repeat-frequency input before it can affect scheduling."""
         try: hours=float(self.repeat_hours.get())
         except ValueError: raise ValueError('Enter a valid repeat frequency in hours') from None
         return self.validate_repeat({'enabled':self.repeat_enabled.get(),'hours':hours})
 
     def repeat_changed(self):
+        """Reset scheduling after an edit and save only valid complete repeat settings."""
         if getattr(self,'loading_limits',False): return
         self.repeat_due=None
         try: self.repeat_settings()
@@ -391,6 +461,7 @@ class Application(ttk.Frame):
         self.save_limits_change()
 
     def schedule_repeat(self):
+        """Arm the next interval only when idle and show its Colombia time in the status bar."""
         self.repeat_due=None
         settings=self.repeat_settings()
         if settings['enabled'] and not self.busy:
@@ -400,11 +471,13 @@ class Application(ttk.Frame):
                 self.status.set(f"Automatic repeat: every {settings['hours']:g} hours. Next run: {next_run:%Y-%m-%d %H:%M} (Colombia).")
 
     def stop_searches(self):
+        """Cancel the active batch and disable automatic repeats to prevent an unexpected restart."""
         self.cancel.set()
         self.repeat_enabled.set(False)
         self.repeat_changed()
 
     def collection_limits(self):
+        """Parse numeric controls and validate all per-search collection budgets."""
         values={}
         for key,variable in self.limit_values.items():
             try: values[key]=int(variable.get())
@@ -412,6 +485,7 @@ class Application(ttk.Frame):
         return validate_limits(values)
 
     def save_limits_change(self):
+        """Save complete valid settings while ignoring transient incomplete numeric edits."""
         try:
             self.collection_limits()
             self.repeat_settings()
@@ -419,17 +493,20 @@ class Application(ttk.Frame):
         if not getattr(self,'loading_limits',False): self.guard(self.autosave_searches)
 
     def autosave_searches(self):
+        """Atomically save current settings unless restoration is still in progress."""
         if not getattr(self,'loading_limits',False):
             write_json(self.search_list_file,self.search_list_document())
 
     def save_days_change(self):
         # Spinbox editing may temporarily leave an empty value; save once valid.
+        """Persist valid day-window changes without saving incomplete numeric edits."""
         try:
             days=int(self.days.get())
         except ValueError: return
         if 1<=days<=90: self.save_limits_change()
 
     def save_search_list(self):
+        """Export current searches and settings to the user's chosen JSON destination."""
         if self.busy: raise ValueError('Wait for the current search to finish')
         filename=filedialog.asksaveasfilename(parent=self,title='Export search list',initialdir=self.root_dir/'data',defaultextension='.json',filetypes=[('JSON','*.json')])
         if filename:
@@ -437,8 +514,10 @@ class Application(ttk.Frame):
             self.status.set(f'Search list exported: {filename}')
 
     def start(self):
+        """Validate and snapshot queries and budgets before launching the background collection batch."""
         if self.busy: return
         def setup():
+            """Validate batch inputs and output paths, then start a worker with independent query budgets."""
             limits=self.collection_limits()
             self.repeat_settings()
             self.autosave_searches()
@@ -462,6 +541,7 @@ class Application(ttk.Frame):
         self.guard(setup)
 
     def worker(self,queries,output,actor,snapshot,limits=None):
+        """Collect enabled queries, persist partial results and enqueue events without touching Tk widgets."""
         try:
             for index,profile in enumerate(queries,1):
                 if self.cancel.is_set(): break
@@ -481,6 +561,7 @@ class Application(ttk.Frame):
         finally: self.events.put(('done',None))
 
     def poll(self):
+        """Process worker events on the Tk thread and start due automatic batches without overlap."""
         try:
             while True:
                 kind,value=self.events.get_nowait()
@@ -503,8 +584,10 @@ class Application(ttk.Frame):
         self.timer=self.after(150,self.poll)
 
     def set_busy(self,busy):
+        """Synchronize action availability and the progress animation with execution state."""
         self.run_button.configure(state='disabled' if busy else 'normal')
         self.load_button.configure(state='disabled' if busy else 'normal')
+        self.load_results_button.configure(state='disabled' if busy else 'normal')
         self.stop_button.configure(state='normal' if busy else 'disabled')
         for button in [self.add_button,self.update_button,self.enabled_button]: button.configure(state='disabled' if busy else 'normal')
         for button in self.decision_buttons: button.configure(state='disabled' if busy else 'normal')
@@ -512,6 +595,7 @@ class Application(ttk.Frame):
         else: self.progress.stop()
 
     def refresh(self):
+        """Reload filtered saved records and refresh the view while preserving selection where possible."""
         old=self.selected
         old_index=next((i for i,row in enumerate(self.rows) if row is old),0)
         with connect(self.database) as db:
@@ -548,16 +632,19 @@ class Application(ttk.Frame):
             self.show_selected()
 
     def change_display_timezone(self):
+        """Switch queue/card display between UTC and Colombia without changing filter semantics."""
         self.card.display_timezone='UTC' if self.show_utc.get() else 'America/Bogota'
         if self.database.exists(): self.refresh()
         else:
             self.queue_table.heading('start',text='Ad start (UTC)' if self.show_utc.get() else 'Ad start (UTC-05)')
 
     def sort_by_date(self):
+        """Toggle newest/oldest display order and refresh while preserving selection."""
         self.date_sort='asc' if self.date_sort=='desc' else 'desc'
         self.refresh()
 
     def clear_queue(self):
+        """Confirm removal of visible unreviewed observations without classification or history deletion."""
         if self.busy: raise ValueError('Wait for the search to finish')
         rows=[dict(r) for r in self.rows if not r.get('reviewed') and r['state']!='list_conflict']
         if not rows:
@@ -570,19 +657,23 @@ class Application(ttk.Frame):
         self.status.set(f'{count} unreviewed ads cleared without classification')
 
     def set_detail(self,text):
+        """Clear structured selection details and show a readable card message."""
         self.analysis_information={}
         self.card.show_message(text)
 
     def set_information(self,data):
+        """Retain structured details for All information and reset the visible card message."""
         self.set_detail('Select an ad to see its presentation card. Open All information for search results and diagnostics.')
         self.analysis_information=data
 
     def open_all_information(self):
+        """Open readable nested fields for the current selection without displaying raw JSON blocks."""
         if not self.analysis_information: return
         window=InformationWindow(self,self.analysis_information)
         window.transient(self.master)
 
     def show_selected(self):
+        """Load selected ad content, cases and related runs, then render its card and evidence references."""
         selected=self.queue_table.selection()
         if not selected: return
         row=self.rows[int(selected[0])]; self.selected=row
@@ -606,6 +697,7 @@ class Application(ttk.Frame):
 
 
     def navigate(self,direction):
+        """Move the queue selection by a bounded offset and display the selected ad."""
         if not self.rows: return
         selection=self.queue_table.selection()
         current=int(selection[0]) if selection else 0
@@ -613,17 +705,20 @@ class Application(ttk.Frame):
         self.queue_table.selection_set(str(index)); self.queue_table.see(str(index)); self.show_selected()
 
     def open_lists(self):
+        """Open modal list administration only while collection is idle."""
         if self.busy: raise ValueError('Wait for the search to finish before changing lists')
         window=ListsWindow(self,self.database,self.lists_dir,on_change=lambda:self.guard(self.refresh))
         window.transient(self.master); window.grab_set()
 
     def open_history(self):
+        """Open case/run history and correction/report controls while collection is idle."""
         if self.busy: raise ValueError('Wait for the search to finish before editing case history')
         window=HistoryWindow(self,self.database,on_change=lambda:self.guard(self.refresh))
         window.transient(self.master); window.grab_set()
 
 
     def classify(self,decision):
+        """Save the selected decision directly with a standard reason and any required local evidence."""
         if self.busy: raise ValueError('Wait for the search to finish')
         row=self.selected
         if row is None: raise ValueError('Select an ad')
@@ -647,6 +742,7 @@ class Application(ttk.Frame):
         self.refresh(); self.status.set(f'Decision saved: {decision}')
 
     def open_evidence(self):
+        """Open local evidence management for the selected case, creating its case context when needed."""
         if self.busy: raise ValueError('Wait for the search to finish')
         row=self.selected
         if row is None: raise ValueError('Select an ad first')
@@ -657,10 +753,12 @@ class Application(ttk.Frame):
         window.transient(self.master); window.grab_set()
 
     def open_library(self):
+        """Open the selected ad in Meta Library without navigating to its external destination."""
         if self.selected:
             webbrowser.open('https://www.facebook.com/ads/library/?'+urlencode({'id':self.selected['ad_id']}))
 
     def close(self):
+        """Request cancellation while busy; otherwise cancel polling and destroy the application window."""
         if self.busy:
             self.cancel.set()
             messagebox.showinfo('Stopping','Stopping the search. Wait for received results to be saved before closing.',parent=self)
@@ -669,6 +767,7 @@ class Application(ttk.Frame):
 
 
 def main():
+    """Parse desktop options and run the Tk event loop or startup-only check."""
     import argparse
     parser=argparse.ArgumentParser(description='Brand Threat Monitor desktop application')
     parser.add_argument('--workspace',type=Path,default=Path.cwd())

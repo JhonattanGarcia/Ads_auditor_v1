@@ -1,4 +1,4 @@
-﻿"""Carga estricta de perfiles y manifiestos antes de consultar fuentes."""
+"""Carga estricta de perfiles y manifiestos antes de consultar fuentes."""
 
 import copy
 import json
@@ -17,12 +17,15 @@ class ProfileError(ValueError):
 
 
 def require(condition, field, message):
+    """Raise a field-specific ProfileError when a configuration invariant is violated."""
     if not condition:
         raise ProfileError(f"{field}: {message}")
 
 
 def read_json(path):
+    """Read a UTF-8 JSON object and reject duplicate keys or malformed input."""
     def unique(pairs):
+        """Build a JSON object from pairs while rejecting duplicate keys instead of silently overwriting."""
         result = {}
         for key, value in pairs:
             require(key not in result, key, "clave JSON duplicada")
@@ -37,6 +40,7 @@ def read_json(path):
 
 
 def validate_profile(value):
+    """Validate a copied profile, including identity, country, criteria, timezone and date rules."""
     profile = copy.deepcopy(value)
     require(isinstance(profile, dict), "profile", "se requiere objeto")
     require(profile.get("schema_version") == "1.0", "schema_version", "version admitida: 1.0")
@@ -85,6 +89,7 @@ def validate_profile(value):
 
 
 def load_profile(path):
+    """Read and validate one profile before it is allowed to generate a search."""
     try:
         return validate_profile(read_json(path))
     except ProfileError as exc:
@@ -97,6 +102,7 @@ class SearchPlan:
     output_directory: Path
 
     def queries(self):
+        """Yield independent profiles for enabled criteria only, preserving manifest output configuration."""
         for profile in self.profiles:
             if not profile["enabled"]:
                 continue
@@ -108,6 +114,7 @@ class SearchPlan:
 
 
 def load_manifest(path):
+    """Resolve profile and output paths relative to a validated manifest file."""
     path = Path(path).resolve()
     data = read_json(path)
     require(data.get("schema_version") == "1.0", "schema_version", "version admitida: 1.0")

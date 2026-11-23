@@ -1,4 +1,4 @@
-﻿import json
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +9,7 @@ from brand_threat_monitor.storage.database import connect
 
 
 def result(run_id='test-run'):
+    """Build the controlled result fixture used by this test scenario."""
     return {'schema_version':'1.0','run_id':run_id,'source':'fixture','source_version':'1',
             'started_at':'2026-11-15T12:00:00+00:00','finished_at':'2026-11-15T12:01:00+00:00',
             'status':'partial','coverage':'partial','country':'CO','query':'marca',
@@ -20,6 +21,7 @@ def result(run_id='test-run'):
 
 class PersistenceTests(unittest.TestCase):
     def test_save_reimport_and_second_run(self):
+        """Verify that save reimport and second run."""
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
             for run_id,expected in [('run1',1),('run1',None),('run2',0)]:
@@ -34,6 +36,7 @@ class PersistenceTests(unittest.TestCase):
                 self.assertEqual(db.execute('SELECT client_id FROM run_queries LIMIT 1').fetchone()[0],'client1')
 
     def test_storage_error_preserves_json_for_recovery(self):
+        """Verify that storage error preserves json for recovery."""
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
             with patch('brand_threat_monitor.ingestion.service.import_result',side_effect=RuntimeError('disk failure')):
@@ -43,6 +46,7 @@ class PersistenceTests(unittest.TestCase):
             self.assertEqual(summary['errors'][-1]['stage'],'persistence')
 
     def test_cancelled_and_failed_source_runs_are_saved(self):
+        """Verify that cancelled and failed source runs are saved."""
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
             for status in ['cancelled','failed']:

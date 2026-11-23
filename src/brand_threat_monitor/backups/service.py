@@ -14,15 +14,18 @@ from ..config.operator import validate_actor
 
 
 def digest(path):
+    """Compute the file SHA-256 used to verify backup and evidence integrity."""
     with Path(path).open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def open_readonly(path):
+    """Open an existing SQLite database for inspection without allowing writes."""
     return sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
 
 
 def verify_database(path):
+    """Check SQLite integrity and foreign keys before accepting a backup or restoration."""
     with closing(open_readonly(path)) as db:
         if db.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
             raise ValueError("Respaldo SQLite corrupto")
@@ -33,6 +36,7 @@ def verify_database(path):
 
 
 def create_backup(database, directory, *, actor):
+    """Create and verify a SQLite snapshot, recording its integrity manifest."""
     actor = validate_actor(actor)
     database, directory = Path(database).resolve(), Path(directory).resolve()
     if not database.is_file():
@@ -72,6 +76,7 @@ def create_backup(database, directory, *, actor):
 
 
 def restore_backup(backup, target, *, actor):
+    """Verify the snapshot and restore it to a new database path without overwriting data."""
     actor = validate_actor(actor)
     backup, target = Path(backup).resolve(), Path(target).resolve()
     if target.exists() or Path(str(target)+"-wal").exists() or Path(str(target)+"-shm").exists():

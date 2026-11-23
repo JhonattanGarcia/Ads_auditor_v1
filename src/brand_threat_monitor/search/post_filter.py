@@ -1,10 +1,11 @@
-﻿"""Postfiltrado puro de una captura acotada, sin nuevas peticiones de red."""
+"""Postfiltrado puro de una captura acotada, sin nuevas peticiones de red."""
 
 from datetime import date,datetime
 from zoneinfo import ZoneInfo
 
 
 def post_filter(received, *, minimum, maximum, timezone, run_id):
+    """Validate captured identities and zoned start dates, filter inclusively, deduplicate and sort matches."""
     low,high=date.fromisoformat(minimum),date.fromisoformat(maximum)
     if low>high: raise ValueError('Invalid post-filter date range')
     zone=ZoneInfo(timezone)

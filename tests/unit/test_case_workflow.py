@@ -1,4 +1,4 @@
-﻿import tempfile
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -11,6 +11,7 @@ from brand_threat_monitor.lists.service import load_lists
 
 class CaseWorkflowTests(unittest.TestCase):
     def setUp(self):
+        """Create isolated test fixtures and resources before each scenario."""
         self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name)
         self.ctx=connect(self.root/'db'); self.db=self.ctx.__enter__(); initialize(self.db)
         with self.db:
@@ -25,9 +26,11 @@ class CaseWorkflowTests(unittest.TestCase):
         self.evidence=self.root/'proof.txt'; self.evidence.write_text('Synthetic')
 
     def tearDown(self):
+        """Close test resources and remove temporary files after each scenario."""
         self.ctx.__exit__(None,None,None); self.tmp.cleanup()
 
     def test_correct_spam_reopens_queue_preserving_history(self):
+        """Verify that correct spam reopens queue preserving history."""
         decide(self.db,self.case,'spam',actor='tester',reason='spam',confirm_id='ad1')
         self.assertEqual(len(database_queue(self.db,load_lists('lists'))['queue']),1)
         reopen_case(self.db,self.case,actor='reviewer',reason='Mistaken identity',confirm_case_id=self.case)
@@ -38,6 +41,7 @@ class CaseWorkflowTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT active FROM brownlist').fetchone()[0],0)
 
     def test_correct_attack_keeps_other_confirmed_antecedent(self):
+        """Verify that correct attack keeps other confirmed antecedent."""
         second=open_case(self.db,'fixture','ad2',actor='tester')['case_id']
         for case in [self.case,second]:
             decide(self.db,case,'attack',actor='tester',reason='proof',confirm_id='publisher',evidence_file=self.evidence)
@@ -50,6 +54,7 @@ class CaseWorkflowTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT count(*) FROM evidence').fetchone()[0],2)
 
     def test_correction_failure_rolls_back_all_changes(self):
+        """Verify that correction failure rolls back all changes."""
         decide(self.db,self.case,'spam',actor='tester',reason='spam',confirm_id='ad1')
         with patch('brand_threat_monitor.review.service.audit',side_effect=RuntimeError('failure')):
             with self.assertRaises(RuntimeError):
@@ -57,6 +62,7 @@ class CaseWorkflowTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT active FROM brownlist').fetchone()[0],1)
 
     def test_report_does_not_change_classification(self):
+        """Verify that report does not change classification."""
         record_report(self.db,self.case,actor='tester',reported_at='2026-11-14T12:00:00-05:00',status='sent',reason='Reported externally')
         detail=case_detail(self.db,self.case)
         self.assertIsNone(detail['case']['decision'])
@@ -65,6 +71,7 @@ class CaseWorkflowTests(unittest.TestCase):
             record_report(self.db,self.case,actor='tester',reported_at='2026-11-14T12:00:00-05:00',status='action_confirmed',reason='missing confirmation')
 
     def test_report_audit_failure_rolls_back(self):
+        """Verify that report audit failure rolls back."""
         with patch('brand_threat_monitor.review.reports.audit',side_effect=RuntimeError('failure')):
             with self.assertRaises(RuntimeError):
                 record_report(self.db,self.case,actor='tester',reported_at='2026-11-14T12:00:00-05:00',status='sent',reason='report')

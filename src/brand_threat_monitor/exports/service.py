@@ -1,4 +1,4 @@
-﻿"""Expedientes JSON/CSV con instantanea consistente y contenido CSV protegido."""
+"""Expedientes JSON/CSV con instantanea consistente y contenido CSV protegido."""
 
 import csv
 import json
@@ -9,6 +9,7 @@ from ..review.service import case_detail
 
 
 def build_case_file(db, case_id):
+    """Collect case content, observations, evidence, reports and events for a consistent export."""
     if db.in_transaction:
         raise ValueError('Export requires a connection without an active transaction')
     try:
@@ -45,6 +46,7 @@ def build_case_file(db, case_id):
 
 
 def csv_safe(value):
+    """Escape spreadsheet formula prefixes without losing the original exported value."""
     if value is None: return ''
     if not isinstance(value,str):
         value=json.dumps(value,ensure_ascii=False,sort_keys=True) if isinstance(value,(dict,list)) else str(value)
@@ -56,6 +58,7 @@ def csv_safe(value):
 
 
 def csv_rows(document):
+    """Flatten case sections into the long-form CSV rows used by case exports."""
     yield ['section','record','field','value']
     for field in ['schema_version','exported_at','limitations']:
         yield ['metadata','1',field,csv_safe(document[field])]
@@ -68,6 +71,7 @@ def csv_rows(document):
 
 
 def export_case(db, case_id, output, *, format):
+    """Write a consistent JSON or CSV case export without overwriting an existing file."""
     output=Path(output)
     if format not in {'json','csv'}: raise ValueError('Export format must be json or csv')
     if output.exists(): raise ValueError('Choose a new file: exports do not overwrite existing files')

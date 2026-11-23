@@ -1,4 +1,4 @@
-﻿import copy
+import copy
 import json
 import tempfile
 import unittest
@@ -10,9 +10,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ProfileTests(unittest.TestCase):
     def setUp(self):
+        """Create isolated test fixtures and resources before each scenario."""
         self.profile = json.loads((ROOT/'profiles/example.json').read_text(encoding='utf-8-sig'))
 
     def test_required_fields_and_country(self):
+        """Verify that required fields and country."""
         for field, value in [('country', 'zz'), ('country', None), ('client_id', ''), ('enabled', 'true')]:
             profile=copy.deepcopy(self.profile)
             profile[field]=value
@@ -20,6 +22,7 @@ class ProfileTests(unittest.TestCase):
                 validate_profile(profile)
 
     def test_invalid_temporal_configuration(self):
+        """Verify that invalid temporal configuration."""
         for days in [True, 0, -2, '7', 7]:
             profile=copy.deepcopy(self.profile)
             profile['days_to_review']=days
@@ -27,6 +30,7 @@ class ProfileTests(unittest.TestCase):
                 validate_profile(profile)
 
     def test_multiple_criteria_and_relative_paths(self):
+        """Verify that multiple criteria and relative paths."""
         with tempfile.TemporaryDirectory() as directory:
             base=Path(directory)
             self.profile['criteria'].append({'query':'otra consulta','enabled':True})
@@ -41,11 +45,13 @@ class ProfileTests(unittest.TestCase):
             self.assertEqual(len(self.profile['criteria']),3)
 
     def test_disabled_profile_emits_no_queries(self):
+        """Verify that disabled profile emits no queries."""
         from brand_threat_monitor.config.profiles import SearchPlan
         self.profile['enabled']=False
         self.assertEqual(list(SearchPlan([validate_profile(self.profile)],ROOT).queries()),[])
 
     def test_duplicate_json_keys_rejected(self):
+        """Verify that duplicate json keys rejected."""
         with tempfile.TemporaryDirectory() as directory:
             p=Path(directory)/'duplicate.json'
             p.write_text('{"country":"co","country":"ec"}')
@@ -53,6 +59,7 @@ class ProfileTests(unittest.TestCase):
                 read_json(p)
 
     def test_invalid_later_profile_rejects_whole_manifest(self):
+        """Verify that invalid later profile rejects whole manifest."""
         with tempfile.TemporaryDirectory() as directory:
             base=Path(directory)
             (base/'good.json').write_text(json.dumps(self.profile))

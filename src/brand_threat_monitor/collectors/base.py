@@ -27,6 +27,7 @@ class CollectedAd:
     payload: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a deep copy of source content so ingestion cannot mutate the collector payload."""
         from copy import deepcopy
         return deepcopy(self.payload)
 
@@ -45,7 +46,13 @@ class Collector(Protocol):
     capabilities: CollectorCapabilities
     stats: dict[str, Any]
 
-    def __enter__(self) -> "Collector": ...
-    def __exit__(self, exc_type, exc_value, traceback) -> None: ...
+    def __enter__(self) -> "Collector":
+        """Enter the collector context and return the resource used for search iteration."""
+        ...
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """Release collector resources on context exit, including when iteration raises an error."""
+        ...
     def search(self, *, query: str, country: str, max_results: int,
-               cancel_event: Event | None = None) -> Iterator[CollectedAd]: ...
+               cancel_event: Event | None = None) -> Iterator[CollectedAd]:
+        """Define cancellable iteration of normalized source ads up to the requested result budget."""
+        ...

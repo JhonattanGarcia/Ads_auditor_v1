@@ -9,6 +9,7 @@ from ..lists.admin import list_entries,authorize,deactivate,resolve_conflict
 
 class ListsWindow(tk.Toplevel):
     def __init__(self,parent,database,lists_dir,on_change=None):
+        """Initialize view widgets and callbacks."""
         super().__init__(parent)
         self.database=database; self.lists_dir=lists_dir; self.on_change=on_change; self.rows=[]
         self.title('List administration'); self.geometry('1080x650')
@@ -35,10 +36,12 @@ class ListsWindow(tk.Toplevel):
         self.guard(self.refresh)
 
     def guard(self,action):
+        """Run a UI callback and display any raised error in a parented dialog."""
         try: action()
         except Exception as exc: messagebox.showerror('Unable to update lists',str(exc),parent=self)
 
     def refresh(self):
+        """Reload filtered saved records and refresh the view while preserving selection where possible."""
         with connect(self.database) as db:
             initialize(db); self.rows=list_entries(db,load_lists(self.lists_dir))
         self.table.delete(*self.table.get_children())
@@ -47,6 +50,7 @@ class ListsWindow(tk.Toplevel):
             self.table.insert('','end',iid=str(index),values=(row['kind'],row['source'],row['entity_id'],scope,row['origin'],row['reason']))
 
     def select(self):
+        """Populate full details from the currently selected row or nested information field."""
         selection=self.table.selection()
         if not selection: return
         row=self.rows[int(selection[0])]
@@ -54,13 +58,16 @@ class ListsWindow(tk.Toplevel):
         self.client.set(row['scope'].get('client_id',''))
 
     def reason(self):
+        """Ask for a nonempty administrative justification before modifying effective lists."""
         return simpledialog.askstring('Reason','Provide a reason for this list change:',parent=self)
 
     def changed(self):
+        """Refresh list administration and notify its parent after a successful modification."""
         self.refresh()
         if self.on_change: self.on_change()
 
     def authorize(self):
+        """Collect publisher, scope and reason inputs and add an audited whitelist authorization."""
         reason=self.reason()
         if not reason or not reason.strip(): return
         entity=self.entity.get().strip(); client=self.client.get().strip()
@@ -72,6 +79,7 @@ class ListsWindow(tk.Toplevel):
         self.changed()
 
     def deactivate(self):
+        """Confirm and deactivate the selected effective entry with an administrative audit reason."""
         selected=self.table.selection()
         if not selected: raise ValueError('Select a list entry first')
         row=self.rows[int(selected[0])]; reason=self.reason()
@@ -83,6 +91,7 @@ class ListsWindow(tk.Toplevel):
         self.changed()
 
     def resolve(self):
+        """Explicitly select which side of a whitelist/blacklist conflict to keep."""
         entity=self.entity.get().strip(); client=self.client.get().strip() or None
         choice=messagebox.askyesnocancel('Resolve list conflict',f'Advertiser {entity}; client context {client or "global"}.\nYes: keep whitelist. No: keep blacklist. Cancel: no change.\nAll opposing entries applying here will be deactivated, including global entries affecting other clients.',parent=self)
         if choice is None: return
@@ -95,6 +104,7 @@ class ListsWindow(tk.Toplevel):
 
 
     def import_file(self):
+        """Preview and validate a selected list file before the backed-up audited import."""
         from ..lists.exchange import read_lists_file,plan_import,import_lists
         path=filedialog.askopenfilename(parent=self,title='Import list entries',filetypes=[('JSON or CSV','*.json *.csv')])
         if not path: return
@@ -110,6 +120,7 @@ class ListsWindow(tk.Toplevel):
         self.changed()
 
     def export_file(self,format):
+        """Export effective lists to a chosen JSON or CSV destination without overwriting existing files."""
         from ..lists.exchange import export_lists
         path=filedialog.asksaveasfilename(parent=self,title='Export effective lists',initialdir=self.database.parent.parent/'exports',defaultextension='.'+format,filetypes=[(format.upper(),'*.'+format)])
         if not path: return

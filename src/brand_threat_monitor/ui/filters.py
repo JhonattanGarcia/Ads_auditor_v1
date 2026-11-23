@@ -1,4 +1,4 @@
-﻿"""Controles compartidos de filtros de observacion."""
+"""Controles compartidos de filtros de observacion."""
 
 import tkinter as tk
 from tkinter import ttk
@@ -7,6 +7,7 @@ from ..history.filters import Filters
 
 class FilterBar(ttk.Frame):
     def __init__(self,parent,on_apply):
+        """Initialize view widgets and callbacks."""
         super().__init__(parent)
         self.values={}
         for index,(field,label,width) in enumerate([
@@ -24,9 +25,11 @@ class FilterBar(ttk.Frame):
         actions=ttk.Frame(self); actions.grid(row=3,column=2,sticky='e')
         ttk.Button(actions,text='Apply filters',command=on_apply).pack(side='left',padx=4)
         def reset():
+            """Clear filter controls and immediately ask the parent view to refresh."""
             for value in self.values.values(): value.set('')
             on_apply()
         ttk.Button(actions,text='Clear filters',command=reset).pack(side='left')
 
     def get(self):
+        """Read controls into validated history filters."""
         return Filters(**{field:value.get() for field,value in self.values.items()})

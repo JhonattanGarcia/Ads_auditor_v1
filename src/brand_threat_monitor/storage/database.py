@@ -8,6 +8,7 @@ from pathlib import Path
 
 @contextmanager
 def connect(path: Path):
+    """Open configured SQLite storage with foreign keys and WAL, closing the connection on exit."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=10)

@@ -1,7 +1,8 @@
-﻿"""Presentacion pasiva del contenido; nunca carga enlaces del anuncio."""
+"""Presentacion pasiva del contenido; nunca carga enlaces del anuncio."""
 
 
 def format_ad(payload):
+    """Format obtained ad content and metadata as readable evidence-review text."""
     lines=[]
     page=payload.get('page') or {}
     if isinstance(page,dict):

@@ -14,4 +14,5 @@ class Settings:
 
     @property
     def database_path(self) -> Path:
+        """Resolve the local SQLite path from application settings."""
         return self.data_dir / "database" / "monitor.sqlite3"

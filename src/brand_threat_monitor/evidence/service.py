@@ -1,4 +1,4 @@
-﻿"""Validacion, previsualizacion e incorporacion de imagenes locales de evidencia."""
+"""Validacion, previsualizacion e incorporacion de imagenes locales de evidencia."""
 
 import hashlib
 from io import BytesIO
@@ -30,6 +30,7 @@ class Preview:
 
 
 def local_path(value):
+    """Accept only an existing regular local file, rejecting URLs and linked path components."""
     value=str(value)
     if value.startswith(('\\\\','//')) or '://' in value:
         raise ValueError('Only local files are supported; URLs and network paths are not opened')
@@ -42,6 +43,7 @@ def local_path(value):
 
 
 def load_preview(value, *, expected_hash=None):
+    """Verify image content, size, dimensions and optional hash before decoding a local preview."""
     path=local_path(value)
     if path.stat().st_size>MAX_BYTES: raise ValueError('Image exceeds the 20 MiB limit')
     with path.open('rb') as stream: content=stream.read(MAX_BYTES+1)
@@ -68,6 +70,7 @@ def load_preview(value, *, expected_hash=None):
 
 
 def attach_image(db,case_id,source,directory,*,actor,reason):
+    """Copy a verified image into managed storage and attach it with transactional audit."""
     actor=validate_actor(actor)
     if not reason or not reason.strip(): raise ValueError('An evidence note is required')
     preview=load_preview(source)

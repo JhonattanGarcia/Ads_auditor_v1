@@ -1,4 +1,4 @@
-﻿import copy
+import copy
 import json
 import tempfile
 import unittest
@@ -8,27 +8,32 @@ from brand_threat_monitor.review.queue import evaluate_result
 
 
 def entry(key, value, scope=None):
+    """Build the controlled entry fixture used by this test scenario."""
     return {'source':'fixture',key:value,'scope':scope or {'type':'global'},
             'reason':'Prueba ficticia','reviewer':'tester','created_at':'2026-11-15T12:00:00+00:00',
             'active':True,'case_id':'fake-case','evidence_refs':['fake-evidence']}
 
 
 def documents():
+    """Build the controlled documents fixture used by this test scenario."""
     return {kind:{'schema_version':'1.0','list_type':kind,'identity_fields':['source',key],'entries':[]}
             for kind,key in [('whitelist','advertiser_id'),('blacklist','advertiser_id'),('brownlist','ad_id')]}
 
 
 class ListTests(unittest.TestCase):
     def snapshot(self, docs):
+        """Build the controlled snapshot fixture used by this test scenario."""
         with tempfile.TemporaryDirectory() as folder:
             for kind,doc in docs.items():
                 (Path(folder)/(kind+'.json')).write_text(json.dumps(doc))
             return load_lists(folder)
 
     def ad(self, ad_id='ad1', advertiser='page1'):
+        """Build the controlled ad fixture used by this test scenario."""
         return {'source':'fixture','ad_id':ad_id,'advertiser_id':advertiser}
 
     def test_black_overrides_brown(self):
+        """Verify that black overrides brown."""
         docs=documents()
         docs['blacklist']['entries']=[entry('advertiser_id','page1')]
         docs['brownlist']['entries']=[entry('ad_id','ad1')]
@@ -37,6 +42,7 @@ class ListTests(unittest.TestCase):
         self.assertEqual(decision['priority'],1)
 
     def test_white_retains_decision_but_not_queue(self):
+        """Verify that white retains decision but not queue."""
         docs=documents()
         docs['whitelist']['entries']=[entry('advertiser_id','page1',{'type':'client','client_id':'client1'})]
         snapshot=self.snapshot(docs)
@@ -46,6 +52,7 @@ class ListTests(unittest.TestCase):
         self.assertEqual(evaluate(self.ad(),'client2',snapshot)['state'],'pending_review')
 
     def test_brown_applies_only_to_one_ad_and_source(self):
+        """Verify that brown applies only to one ad and source."""
         docs=documents()
         docs['brownlist']['entries']=[entry('ad_id','ad1')]
         snapshot=self.snapshot(docs)
@@ -55,6 +62,7 @@ class ListTests(unittest.TestCase):
         self.assertEqual(evaluate(ad,'c',snapshot)['state'],'pending_review')
 
     def test_conflict_across_overlapping_scopes(self):
+        """Verify that conflict across overlapping scopes."""
         docs=documents()
         docs['whitelist']['entries']=[entry('advertiser_id','page1',{'type':'client','client_id':'client1'})]
         docs['blacklist']['entries']=[entry('advertiser_id','page1')]
@@ -63,6 +71,7 @@ class ListTests(unittest.TestCase):
         self.assertEqual(evaluate(self.ad(),'client2',snapshot)['state'],'known_black')
 
     def test_duplicate_and_missing_evidence_rejected(self):
+        """Verify that duplicate and missing evidence rejected."""
         docs=documents()
         doc=docs['blacklist']
         doc['entries']=[entry('advertiser_id','page1')]
@@ -72,6 +81,7 @@ class ListTests(unittest.TestCase):
         with self.assertRaises(ValueError): validate_document(doc,'blacklist')
 
     def test_inactive_entries_do_not_apply(self):
+        """Verify that inactive entries do not apply."""
         docs=documents()
         item=entry('advertiser_id','page1'); item['active']=False
         docs['blacklist']['entries']=[item]

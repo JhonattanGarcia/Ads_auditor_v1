@@ -35,6 +35,7 @@ class BoundedMetaCollector:
 
     def __init__(self, *, timeout=20, max_retries=1, max_duration=120,
                  idle_timeout=45, worker_target=meta_worker, max_pages=None):
+        """Store subprocess budgets and initialize IPC state; no source process starts until search."""
         self.version=version('meta-ads-collector')
         self.timeout=timeout
         self.max_retries=max_retries
@@ -47,12 +48,16 @@ class BoundedMetaCollector:
         self.process=None
         self.receiver=None
 
-    def __enter__(self): return self
+    def __enter__(self):
+        """Enter the collector context and return the resource used for search iteration."""
+        return self
 
     def __exit__(self,*args):
+        """Release collector resources on context exit, including when iteration raises an error."""
         self.cleanup()
 
     def cleanup(self):
+        """Terminate and join the collector subprocess, then close its pipe and process handles."""
         if self.process is not None:
             if self.process.is_alive(): self.process.terminate()
             self.process.join(timeout=2)
@@ -63,6 +68,7 @@ class BoundedMetaCollector:
             self.receiver.close(); self.receiver=None
 
     def search(self, *, query, country, max_results, cancel_event=None, start_date=None, end_date=None):
+        """Stream subprocess results with cancellation and hard total/idle deadlines; always clean up IPC resources."""
         if cancel_event is not None and cancel_event.is_set():
             raise CollectorCancelled('Search cancelled before starting')
         context=mp.get_context('spawn')

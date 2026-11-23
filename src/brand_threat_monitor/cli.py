@@ -10,6 +10,7 @@ from .storage.repositories import import_result
 
 
 def main() -> int:
+    """Parse administrative CLI commands and dispatch validated operations to application services."""
     parser = argparse.ArgumentParser(description="Brand Threat Monitor")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command")

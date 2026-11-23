@@ -10,6 +10,7 @@ from brand_threat_monitor.ui.app import Application
 
 class CollectionLimitTests(unittest.TestCase):
     def test_validation(self):
+        """Verify that validation."""
         self.assertEqual(validate_limits({}),DEFAULT_LIMITS)
         for key in DEFAULT_LIMITS:
             for value in (0,-1,True,'10',1000000):
@@ -17,12 +18,14 @@ class CollectionLimitTests(unittest.TestCase):
                     with self.assertRaises(ValueError): validate_limits({key:value})
 
     def test_page_limit_stops_cursor_without_fetching_extra_page(self):
+        """Verify that page limit stops cursor without fetching extra page."""
         collector=MetaCollector.__new__(MetaCollector)
         collector.max_pages=2
         backend=Mock(); backend.stats={'pages_fetched':0}
         original=Mock(return_value=({'ads':[]},'next'))
         backend.client.search_ads=original
         def search(**kwargs):
+            """Yield scripted fixture results or failures without contacting the live source."""
             cursor=None
             while True:
                 response,cursor=backend.client.search_ads(cursor=cursor)
@@ -38,6 +41,7 @@ class CollectionLimitTests(unittest.TestCase):
         self.assertIs(backend.client.search_ads,original)
 
     def test_ui_limits_are_saved_and_restored(self):
+        """Verify that ui limits are saved and restored."""
         with tempfile.TemporaryDirectory() as directory:
             root=tk.Tk(); root.withdraw()
             app=Application(root,Path(directory))
@@ -56,6 +60,7 @@ class CollectionLimitTests(unittest.TestCase):
             finally: app.close()
 
     def test_result_and_summary_record_limits_and_page_stop(self):
+        """Verify that result and summary record limits and page stop."""
         import json
         from brand_threat_monitor.ingestion.collector import collect
         from brand_threat_monitor.ingestion.service import persist_result
@@ -64,12 +69,19 @@ class CollectionLimitTests(unittest.TestCase):
         options={}
         class Fake:
             def __init__(self,**kwargs):
+                """Initialize the controlled fake resource and its test counters."""
                 options.update(kwargs)
                 self.max_duration=kwargs['max_duration']; self.idle_timeout=kwargs['idle_timeout']; self.max_pages=kwargs['max_pages']
                 self.stats={'pages_fetched':2,'page_limit_reached':True,'errors':0}
-            def __enter__(self): return self
-            def __exit__(self,*args): pass
-            def search(self,**kwargs): return iter(())
+            def __enter__(self):
+                """Return the controlled fixture resource for the test context manager."""
+                return self
+            def __exit__(self,*args):
+                """Leave the fixture context without suppressing test failures."""
+                pass
+            def search(self,**kwargs):
+                """Yield scripted fixture results or failures without contacting the live source."""
+                return iter(())
         result=collect(profile,collector_factory=Fake,max_scan=250,max_pages=2,max_duration=180,idle_timeout=20)
         self.assertEqual(result['stop_reason'],'page_limit_reached')
         self.assertEqual(result['errors'],[])
@@ -80,6 +92,7 @@ class CollectionLimitTests(unittest.TestCase):
             self.assertEqual(summary['connector_stats']['pages_fetched'],2)
 
     def test_legacy_search_list_restores_default_limits_without_intermediate_saves(self):
+        """Verify that legacy search list restores default limits without intermediate saves."""
         import json
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as directory:
@@ -95,6 +108,7 @@ class CollectionLimitTests(unittest.TestCase):
             finally: app.close()
 
     def test_incomplete_limit_edit_does_not_show_error_when_days_change(self):
+        """Verify that incomplete limit edit does not show error when days change."""
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as directory:
             root=tk.Tk(); root.withdraw(); app=Application(root,Path(directory))

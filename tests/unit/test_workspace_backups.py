@@ -1,4 +1,4 @@
-﻿import json
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +9,7 @@ from brand_threat_monitor.storage.database import connect,initialize
 
 class WorkspaceBackupTests(unittest.TestCase):
     def setUp(self):
+        """Create isolated test fixtures and resources before each scenario."""
         self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name)
         self.workspace=self.root/'workspace'; self.workspace.mkdir()
         self.database=self.workspace/'data/database/monitor.sqlite3'
@@ -26,12 +27,16 @@ class WorkspaceBackupTests(unittest.TestCase):
                 db.execute("INSERT INTO evidence(evidence_id,case_id,type,hash,local_path) VALUES ('proof','case','local_file',?,?)",(digest(self.external),str(self.external)))
         self.backups=self.root/'backups'
 
-    def tearDown(self): self.tmp.cleanup()
+    def tearDown(self):
+        """Close test resources and remove temporary files after each scenario."""
+        self.tmp.cleanup()
 
     def backup(self):
+        """Build the controlled backup fixture used by this test scenario."""
         return create_workspace_backup(self.workspace,self.backups,actor='tester')
 
     def test_roundtrip_includes_profiles_lists_and_external_evidence(self):
+        """Verify that roundtrip includes profiles lists and external evidence."""
         backup=self.backup()
         manifest=verify_workspace_backup(backup)
         target=restore_workspace_backup(backup,self.root/'restored',actor='restorer')
@@ -46,17 +51,20 @@ class WorkspaceBackupTests(unittest.TestCase):
         self.assertEqual(self.external.read_text(),'Synthetic evidence')
 
     def test_changed_file_is_rejected(self):
+        """Verify that changed file is rejected."""
         backup=self.backup()
         (backup/'profiles/local/profile.json').write_text('altered')
         with self.assertRaises(ValueError): restore_workspace_backup(backup,self.root/'restored',actor='tester')
         self.assertFalse((self.root/'restored').exists())
 
     def test_missing_referenced_evidence_fails_backup(self):
+        """Verify that missing referenced evidence fails backup."""
         self.external.unlink()
         with self.assertRaises(ValueError): self.backup()
         self.assertEqual(list(self.backups.iterdir()),[])
 
     def test_existing_target_and_unsafe_manifest_are_rejected(self):
+        """Verify that existing target and unsafe manifest are rejected."""
         backup=self.backup()
         with self.assertRaises(ValueError): restore_workspace_backup(backup,self.workspace,actor='tester')
         manifest=json.loads((backup/'manifest.json').read_text())
@@ -66,6 +74,7 @@ class WorkspaceBackupTests(unittest.TestCase):
         self.assertFalse((self.root/'new').exists())
 
     def test_backup_directory_cannot_be_inside_evidence(self):
+        """Verify that backup directory cannot be inside evidence."""
         with self.assertRaises(ValueError):
             create_workspace_backup(self.workspace,self.workspace/'data/evidence/backups',actor='tester')
 

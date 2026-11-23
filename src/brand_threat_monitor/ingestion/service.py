@@ -9,6 +9,7 @@ from ..storage.repositories import import_result
 
 
 def write_json(path, data):
+    """Write UTF-8 JSON through a temporary file and atomically replace the target on success."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None

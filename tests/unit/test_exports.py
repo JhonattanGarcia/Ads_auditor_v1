@@ -1,4 +1,4 @@
-﻿import csv
+import csv
 import json
 import tempfile
 import unittest
@@ -11,6 +11,7 @@ from brand_threat_monitor.exports.service import export_case,build_case_file,csv
 
 class ExportTests(unittest.TestCase):
     def setUp(self):
+        """Create isolated test fixtures and resources before each scenario."""
         self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name)
         self.ctx=connect(self.root/'db.sqlite3'); self.db=self.ctx.__enter__(); initialize(self.db)
         data={'schema_version':'1.0','run_id':'run','source':'fixture','started_at':'2026-11-15T12:00:00+00:00',
@@ -22,9 +23,11 @@ class ExportTests(unittest.TestCase):
         decide(self.db,self.case,'pending',actor='tester',reason='Missing details')
 
     def tearDown(self):
+        """Close test resources and remove temporary files after each scenario."""
         self.ctx.__exit__(None,None,None); self.tmp.cleanup()
 
     def test_json_preserves_case_content_query_and_history(self):
+        """Verify that json preserves case content query and history."""
         path=export_case(self.db,self.case,self.root/'case.json',format='json')
         doc=json.loads(path.read_text())
         self.assertEqual(doc['ad']['content']['body'],'Original text')
@@ -35,6 +38,7 @@ class ExportTests(unittest.TestCase):
         self.assertFalse(self.db.in_transaction)
 
     def test_csv_is_parseable_and_protects_untrusted_cells(self):
+        """Verify that csv is parseable and protects untrusted cells."""
         path=export_case(self.db,self.case,self.root/'case.csv',format='csv')
         with path.open(encoding='utf-8-sig',newline='') as stream: rows=list(csv.DictReader(stream))
         query=next(row['value'] for row in rows if row['section']=='observations' and row['field']=='query')
@@ -42,16 +46,19 @@ class ExportTests(unittest.TestCase):
         self.assertTrue(any(row['section']=='events' for row in rows))
 
     def test_formula_prefixes_and_normal_text(self):
+        """Verify that formula prefixes and normal text."""
         for value in ['=1+1',' +SUM(A1)','-2','@test','\t=1','\n=1']:
             self.assertTrue(csv_safe(value).startswith("'"))
         self.assertEqual(csv_safe('ordinary text'),'ordinary text')
 
     def test_existing_file_is_not_overwritten(self):
+        """Verify that existing file is not overwritten."""
         path=self.root/'existing.json'; path.write_text('keep')
         with self.assertRaises(ValueError): export_case(self.db,self.case,path,format='json')
         self.assertEqual(path.read_text(),'keep')
 
     def test_unknown_case_leaves_no_file(self):
+        """Verify that unknown case leaves no file."""
         path=self.root/'unknown.json'
         with self.assertRaises(ValueError): export_case(self.db,'unknown',path,format='json')
         self.assertFalse(path.exists())

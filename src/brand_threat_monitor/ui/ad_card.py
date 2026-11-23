@@ -14,12 +14,14 @@ from .theme import INK, TEAL, IVORY, PAPER, SECONDARY, BORDER, font_family
 
 
 def text(value):
+    """Extract readable text from source strings or supported nested text/body/value objects."""
     if isinstance(value,str): return value
     if isinstance(value,dict): return text(value.get('text') or value.get('body') or value.get('value'))
     return ''
 
 
 def web_url(value):
+    """Accept only HTTP or HTTPS URLs with a host and without embedded credentials."""
     if not isinstance(value,str): return ''
     try:
         parts=urlsplit(value.strip())
@@ -54,6 +56,7 @@ def external_links(payload):
 
 
 def card_data(payload,index=0,*,display_timezone='America/Bogota'):
+    """Extract readable creative, publisher, date and link fields without changing the source payload."""
     page=payload.get('page') if isinstance(payload.get('page'),dict) else {}
     creatives=[c for c in payload.get('creatives',[]) if isinstance(c,dict)]
     creative=creatives[max(0,min(index,len(creatives)-1))] if creatives else {}
@@ -66,6 +69,7 @@ def card_data(payload,index=0,*,display_timezone='America/Bogota'):
     media=[creative[k] for k in ['image_url','original_image_url','resized_image_url','video_url','video_hd_url','video_sd_url'] if isinstance(creative.get(k),str) and creative[k]]
     images=list(dict.fromkeys(creative[k] for k in ['resized_image_url','image_url','original_image_url','thumbnail_url','video_preview_image_url','watermarked_image_url'] if isinstance(creative.get(k),str) and creative[k]))
     def date_label(value):
+        """Format a source timestamp in the selected display timezone with an explicit missing-value fallback."""
         if not value: return 'Not available'
         try:
             stamp=datetime.fromisoformat(value)
@@ -101,6 +105,7 @@ def card_data(payload,index=0,*,display_timezone='America/Bogota'):
 
 class AdCard(ttk.Frame):
     def __init__(self,parent,on_open=None):
+        """Build AdCard widgets and initialize their local state and callbacks."""
         super().__init__(parent)
         self.display_timezone='America/Bogota'
         self.on_open=on_open; self.payload={}; self.index=0; self.photo=None; self.evidence=[]
@@ -144,6 +149,7 @@ class AdCard(ttk.Frame):
         self.surface.bind('<Configure>',lambda e:self.canvas.configure(scrollregion=self.canvas.bbox('all')))
         self.canvas.bind('<Configure>',self.resize)
         def label(size=10,color=SECONDARY):
+            """Create a wrapped card label with the design font and text color for its hierarchy."""
             widget=tk.Label(self.surface,text='',font=(font_family(self,'display' if size>=14 else 'body'),size,'bold' if size>=14 else 'normal'),bg=IVORY,fg=color,justify='left',anchor='w')
             widget.pack(fill='x',pady=4)
             return widget
@@ -163,6 +169,7 @@ class AdCard(ttk.Frame):
         self.show_message('Select an ad to see its presentation card.')
 
     def resize(self,event):
+        """Resize the scrollable card content and recompute wrapped text after a viewport width change."""
         width=max(80,event.width)
         self.canvas.itemconfigure(self.item,width=width)
         for widget in [self.name,self.title,self.destination,self.dates,self.identifiers,self.metrics,self.status,self.priority,self.variant_label]:
@@ -170,26 +177,31 @@ class AdCard(ttk.Frame):
         self.schedule_fit()
 
     def schedule_fit(self):
+        """Debounce text measurement so only the latest idle layout callback remains scheduled."""
         if self.fit_job is not None: self.after_cancel(self.fit_job)
         self.fit_job=self.after_idle(self.fit_body)
 
     def fit_body(self):
+        """Fit the ad copy to its wrapped line count so the surrounding metadata panel owns scrolling."""
         self.fit_job=None
         if not self.winfo_exists(): return
         count=self.body.count('1.0','end','displaylines')
         self.body.configure(height=max(3,(count[0] if count else 1)+1))
 
     def resize_images(self,event=None):
+        """Rescale retained source images to their fixed panels without moving them with the text."""
         for target,image in self.source_images.items(): self.display_image(image,target,remember=False)
         self.advertiser_media.configure(wraplength=max(60,self.advertiser_panel.winfo_width()-12))
         self.media.configure(wraplength=max(60,self.media_panel.winfo_width()-12))
 
     def set_body(self,value):
+        """Replace read-only ad copy and schedule measurement after Tk has updated the layout."""
         self.body.configure(state='normal'); self.body.delete('1.0','end'); self.body.insert('1.0',value); self.body.configure(state='disabled')
         self.schedule_fit()
 
     def clear_images(self):
         # Detach Tcl image names before releasing their Python PhotoImage owners.
+        """Detach Tcl image references before releasing PhotoImage owners to avoid missing-image errors."""
         self.media.configure(image='')
         self.advertiser_media.configure(image='')
         self.source_images.clear()
@@ -197,6 +209,7 @@ class AdCard(ttk.Frame):
         self.advertiser_photo=None
 
     def show_message(self,message):
+        """Clear the selected ad, invalidate pending image loads and display a readable empty-state message."""
         self.image_generation+=1
         self.clear_images()
         self.payload={}; self.evidence=[]
@@ -212,11 +225,13 @@ class AdCard(ttk.Frame):
         for button in [self.preview_button,self.copy_button,self.library_button,self.retry_button]: button.configure(state='disabled')
 
     def show(self,payload,*,priority=None,evidence=None):
+        """Select a new ad, reset the creative index and render its card from the top."""
         self.payload=payload; self.index=0; self.evidence=evidence or []
         self.render(priority)
         self.canvas.yview_moveto(0)
 
     def render(self,priority=None):
+        """Refresh card fields, link controls and asynchronous images for the selected creative and timezone."""
         self.clear_images()
         data=card_data(self.payload,self.index,display_timezone=self.display_timezone)
         self.name.configure(text=data['name'])
@@ -243,14 +258,17 @@ class AdCard(ttk.Frame):
         self.load_web_image(data['advertiser_images'],'advertiser')
 
     def open_publisher(self):
+        """Open the selected publisher's validated profile URL only after an explicit user action."""
         url=card_data(self.payload)['publisher_url']
         if url: webbrowser.open(url)
 
     def open_ad(self):
+        """Open the selected ad's Meta Library page only after an explicit user action."""
         url=card_data(self.payload)['ad_url']
         if url: webbrowser.open(url)
 
     def render_external_links(self,links):
+        """Rebuild the dedicated external-destination section with explicit clickable links."""
         for child in self.external_section.winfo_children(): child.destroy()
         ttk.Label(self.external_section,text=f'{len(links)} external link(s) detected' if links else 'No external links detected in the available ad data.',wraplength=250).pack(anchor='w')
         for url in links:
@@ -259,6 +277,7 @@ class AdCard(ttk.Frame):
             label.bind('<Button-1>',lambda event,target=url:webbrowser.open(target))
 
     def load_web_image(self,urls,target='media'):
+        """Load preview candidates off the Tk thread, using generation tokens to discard stale results."""
         generation=self.image_generation
         if target=='media': self.retry_button.configure(state='normal' if urls or card_data(self.payload)['advertiser_images'] else 'disabled')
         if not urls: return
@@ -270,6 +289,7 @@ class AdCard(ttk.Frame):
             self.display_image(self.image_cache[key],target)
             return
         def worker():
+            """Try remote image candidates on a daemon thread and enqueue data only; never access Tk widgets."""
             from .remote_image import load_remote_image
             error='Image unavailable'
             for url in urls:
@@ -282,6 +302,7 @@ class AdCard(ttk.Frame):
         threading.Thread(target=worker,daemon=True).start()
 
     def poll_images(self):
+        """Drain worker image results on the Tk thread, update the bounded cache and render current previews."""
         try:
             while True:
                 generation,key,image,error,target=self.image_results.get_nowait()
@@ -297,6 +318,7 @@ class AdCard(ttk.Frame):
         self.image_poll=self.after(100,self.poll_images)
 
     def display_image(self,image,target='media',*,remember=True):
+        """Scale a preview and retain its PhotoImage owner until its widget has safely replaced it."""
         from PIL import ImageTk
         if remember: self.source_images[target]=image
         panel=self.media_panel if target=='media' else self.advertiser_panel
@@ -309,6 +331,7 @@ class AdCard(ttk.Frame):
         else: self.advertiser_photo=photo
 
     def retry_image(self):
+        """Invalidate old image responses, evict current previews and retry both publisher and ad images."""
         data=card_data(self.payload,self.index)
         self.image_generation+=1
         self.image_cache.pop(tuple(data['images']),None)
@@ -317,21 +340,25 @@ class AdCard(ttk.Frame):
         self.load_web_image(data['advertiser_images'],'advertiser')
 
     def destroy(self):
+        """Cancel pending UI callbacks and invalidate background image results before destroying the card."""
         self.image_generation+=1
         self.after_cancel(self.image_poll)
         if self.fit_job is not None: self.after_cancel(self.fit_job)
         super().destroy()
 
     def change(self,direction):
+        """Move within available creative variants and redraw the selected creative."""
         count=card_data(self.payload)['count']
         if not count: return
         self.index=max(0,min(count-1,self.index+direction)); self.render()
 
     def copy_url(self):
+        """Copy the current creative destination to the clipboard without navigating to it."""
         url=card_data(self.payload,self.index)['destination']
         if url: self.clipboard_clear(); self.clipboard_append(url)
 
     def preview(self):
+        """Validate and display selected local evidence without opening external destinations."""
         from PIL import ImageTk
         from ..evidence.service import load_preview
         from tkinter import messagebox

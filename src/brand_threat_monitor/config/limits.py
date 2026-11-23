@@ -4,6 +4,7 @@ BOUNDS={'max_scan':(1,100000),'max_pages':(1,10000),'max_duration':(1,86400),'id
 
 
 def validate_limits(values):
+    """Merge defaults and reject unknown keys, booleans and out-of-range collection budgets."""
     if not isinstance(values,dict) or set(values)-set(DEFAULT_LIMITS):
         raise ValueError('Invalid collection limits')
     result={**DEFAULT_LIMITS,**values}

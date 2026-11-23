@@ -21,6 +21,7 @@ from brand_threat_monitor.ingestion.collector import collect
 
 
 def main():
+    """Validate CLI search options and persist each enabled query and its run summary."""
     from brand_threat_monitor.config.profiles import load_manifest, load_profile, SearchPlan
     from tempfile import NamedTemporaryFile
 

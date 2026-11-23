@@ -10,12 +10,14 @@ from ..review.service import audit
 
 
 def scope_key(scope):
+    """Convert a validated list scope into the stable global or client-specific database key."""
     if scope.get('type')=='global': return 'global'
     if scope.get('type')=='client': return 'client:'+text(scope.get('client_id'),'scope.client_id')
     raise ValueError('Use global or client scope')
 
 
 def list_entries(db,snapshot):
+    """Return effective JSON and SQLite list entries with their scope and provenance."""
     effective=merge_database_lists(db,snapshot)
     result=[]
     for kind,document in effective.documents.items():
@@ -27,6 +29,7 @@ def list_entries(db,snapshot):
 
 
 def _deactivate(db,kind,entry,actor,reason):
+    """Apply the internal deactivation changes shared by explicit administrative operations."""
     key=KINDS[kind]; scope=scope_key(entry['scope'])
     now=datetime.now(timezone.utc).isoformat()
     # Suppression applies to JSON sources, not to future deliberate SQLite decisions.
@@ -43,6 +46,7 @@ def _deactivate(db,kind,entry,actor,reason):
 
 
 def deactivate(db,snapshot,kind,source,entity_id,scope,*,actor,reason,confirm_id):
+    """Validate the request and atomically deactivate an entry with a local exclusion and audit."""
     actor=validate_actor(actor); text(reason,'reason')
     if kind not in KINDS or entity_id!=confirm_id: raise ValueError('Confirm the exact entity ID')
     with db:
@@ -58,6 +62,7 @@ def deactivate(db,snapshot,kind,source,entity_id,scope,*,actor,reason,confirm_id
 
 
 def authorize(db,snapshot,source,advertiser_id,scope,*,actor,reason,confirm_id):
+    """Add a scoped whitelist authorization with validation and transactional audit."""
     actor=validate_actor(actor); text(source,'source'); text(advertiser_id,'advertiser_id'); text(reason,'reason')
     scope_value=scope_key(scope)
     if confirm_id!=advertiser_id: raise ValueError('Confirm the exact advertiser ID')
@@ -84,6 +89,7 @@ def authorize(db,snapshot,source,advertiser_id,scope,*,actor,reason,confirm_id):
 
 
 def resolve_conflict(db,snapshot,source,advertiser_id,client_id,keep,*,actor,reason,confirm_id):
+    """Keep the explicitly chosen list side and deactivate conflicting applicable entries atomically."""
     actor=validate_actor(actor); text(reason,'reason')
     if keep not in {'whitelist','blacklist'} or confirm_id!=advertiser_id:
         raise ValueError('Choose whitelist or blacklist and confirm the advertiser ID')

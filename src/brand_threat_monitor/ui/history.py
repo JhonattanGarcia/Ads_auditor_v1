@@ -17,6 +17,7 @@ from .information import format_information
 
 class HistoryWindow(tk.Toplevel):
     def __init__(self,parent,database,on_change=None):
+        """Initialize view widgets and callbacks."""
         super().__init__(parent)
         self.database=database
         self.on_change=on_change
@@ -53,6 +54,7 @@ class HistoryWindow(tk.Toplevel):
         self.guard(self.refresh)
 
     def text_area(self,parent):
+        """Create a read-only history text area with scrolling support."""
         frame=ttk.Frame(parent); frame.pack(fill='both',expand=True,pady=8)
         text=tk.Text(frame,wrap='word',state='disabled')
         scroll=ttk.Scrollbar(frame,command=text.yview); text.configure(yscrollcommand=scroll.set)
@@ -60,14 +62,17 @@ class HistoryWindow(tk.Toplevel):
         return text
 
     def show_text(self,widget,value):
+        """Replace history details while preserving the text widget's read-only state."""
         widget.configure(state='normal'); widget.delete('1.0','end')
         widget.insert('1.0',format_information(value)); widget.configure(state='disabled')
 
     def guard(self,action):
+        """Run a UI callback and display any raised error in a parented dialog."""
         try: return action()
         except Exception as exc: messagebox.showerror('Unable to complete the action',str(exc),parent=self)
 
     def refresh(self):
+        """Reload filtered saved records and refresh the view while preserving selection where possible."""
         selected=self.case_id
         filters=self.filters.get()
         with connect(self.database) as db:
@@ -87,10 +92,12 @@ class HistoryWindow(tk.Toplevel):
         else: self.show_text(self.case_detail,{'message':'Select a case to inspect its history.'})
 
     def show_run(self):
+        """Display saved metadata and structured result information for the selected run."""
         selection=self.run_table.selection()
         if selection: self.show_text(self.run_detail,json.loads(self.runs[selection[0]]['payload_json']))
 
     def show_case(self):
+        """Display the selected case, evidence, events and manual report history."""
         selection=self.case_table.selection()
         if not selection: return
         self.case_id=selection[0]
@@ -98,6 +105,7 @@ class HistoryWindow(tk.Toplevel):
             self.show_text(self.case_detail,case_detail(db,self.case_id))
 
     def correct(self):
+        """Request justification and reopen a classified case without erasing earlier events or evidence."""
         if not self.case_id: raise ValueError('Select a case first')
         case_id=self.case_id
         reason=simpledialog.askstring('Correction reason','Explain why this classification should be corrected:',parent=self)
@@ -109,11 +117,13 @@ class HistoryWindow(tk.Toplevel):
         if self.on_change: self.on_change()
 
     def open_evidence(self):
+        """Open local evidence management for the selected case, creating its case context when needed."""
         if not self.case_id: raise ValueError('Select a case first')
         window=EvidenceWindow(self,self.database,self.case_id,self.database.parent.parent/'evidence')
         window.transient(self); window.grab_set()
 
     def export(self,format):
+        """Export the selected case to JSON or CSV without overwriting existing files."""
         if not self.case_id: raise ValueError('Select a case first')
         filename=filedialog.asksaveasfilename(parent=self,title='Export case as '+format.upper(),
             initialdir=self.database.parent.parent/'exports',initialfile=self.case_id+'.'+format,
@@ -125,6 +135,7 @@ class HistoryWindow(tk.Toplevel):
         messagebox.showinfo('Case exported',str(output),parent=self)
 
     def report_dialog(self):
+        """Build the manual report-recording dialog; this does not submit anything to Meta."""
         if not self.case_id: raise ValueError('Select a case first')
         case_id=self.case_id
         window=tk.Toplevel(self); window.title('Record a manual report'); window.transient(self); window.grab_set()
@@ -140,6 +151,7 @@ class HistoryWindow(tk.Toplevel):
         ttk.Combobox(window,textvariable=status,values=['sent','awaiting_response','action_confirmed','unknown'],state='readonly').grid(row=3,column=1,sticky='w',padx=10)
         ttk.Label(window,text='This only records a report you already submitted manually.').grid(row=4,columnspan=2,padx=10,pady=10)
         def save():
+            """Validate report dialog fields, record the manual event and refresh history."""
             try:
                 with connect(self.database) as db:
                     record_report(db,case_id,actor='local_operator',reported_at=fields['reported_at'].get(),

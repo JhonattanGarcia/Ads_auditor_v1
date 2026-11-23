@@ -10,12 +10,14 @@ from ..config.operator import validate_actor
 
 
 def audit(db, actor, operation, entity, before, after, reason):
+    """Append an attributed before/after audit event within the caller's transaction."""
     db.execute('INSERT INTO audit_log VALUES (?,?,?,?,?,?,?,?)',
                (str(uuid4()),actor,datetime.now(timezone.utc).isoformat(),operation,entity,
                 json.dumps(before,ensure_ascii=False),json.dumps(after,ensure_ascii=False),reason))
 
 
 def open_case(db, source, ad_id, *, actor, client_id=None):
+    """Create or reuse the source/ad/client review case with an attributed audit event."""
     actor=validate_actor(actor)
     with db:
         db.execute('BEGIN IMMEDIATE')
@@ -37,6 +39,7 @@ def open_case(db, source, ad_id, *, actor, client_id=None):
 
 
 def decide(db, case_id, decision, *, actor, reason, confirm_id=None, evidence_file=None, lists=None):
+    """Apply a human decision, required evidence and list effects in one audited transaction."""
     actor=validate_actor(actor)
     if decision not in {'spam','attack','pending'}:
         raise ValueError('Decision admitida: spam, attack o pending')
@@ -138,6 +141,7 @@ def reopen_case(db, case_id, *, actor, reason, confirm_case_id):
 
 
 def list_cases(db, *, client_id=None, status=None, filters=None):
+    """Return review cases with their optional client and observation-context filters."""
     clauses, values=[],[]
     if client_id is not None:
         clauses.append('client_id=?'); values.append(client_id)
@@ -150,6 +154,7 @@ def list_cases(db, *, client_id=None, status=None, filters=None):
 
 
 def case_detail(db, case_id):
+    """Load the case, ad payload, evidence, report records and audit history for review or export."""
     row=db.execute('SELECT * FROM review_cases WHERE case_id=?',(case_id,)).fetchone()
     if row is None: raise ValueError('Caso desconocido')
     return {'case':dict(row),

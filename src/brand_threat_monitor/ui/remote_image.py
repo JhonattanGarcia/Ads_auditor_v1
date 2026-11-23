@@ -9,6 +9,7 @@ MAX_BYTES=8*1024*1024
 
 
 def load_remote_image(url):
+    """Download with a timeout and byte budget, then verify image format/dimensions before returning a thumbnail."""
     parts=urlsplit(url)
     if parts.scheme not in {'http','https'} or not parts.hostname or parts.username or parts.password:
         raise ValueError('Unsupported image URL')

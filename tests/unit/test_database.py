@@ -8,6 +8,7 @@ from brand_threat_monitor.storage.repositories import import_result
 
 
 def sample():
+    """Build the controlled sample fixture used by this test scenario."""
     return {'schema_version':'1.0','run_id':'run1','source':'fixture',
             'started_at':'2026-11-14T12:00:00+00:00','finished_at':None,
             'status':'partial','coverage':'partial','country':'CO','query':'marca',
@@ -18,25 +19,30 @@ def sample():
 
 class DatabaseTests(unittest.TestCase):
     def setUp(self):
+        """Create isolated test fixtures and resources before each scenario."""
         self.temp = tempfile.TemporaryDirectory()
         self.ctx = connect(Path(self.temp.name)/'monitor.sqlite3')
         self.db = self.ctx.__enter__()
         initialize(self.db)
 
     def tearDown(self):
+        """Close test resources and remove temporary files after each scenario."""
         self.ctx.__exit__(None,None,None)
         self.temp.cleanup()
 
     def count(self, table):
+        """Return the fixture table row count for persistence assertions."""
         return self.db.execute('SELECT count(*) FROM '+table).fetchone()[0]
 
     def test_migration_repeatable_and_foreign_keys_enabled(self):
+        """Verify that migration repeatable and foreign keys enabled."""
         initialize(self.db)
         self.assertEqual(self.count('schema_migrations'),5)
         self.assertEqual(self.db.execute('PRAGMA foreign_keys').fetchone()[0],1)
         self.assertEqual(self.db.execute('PRAGMA journal_mode').fetchone()[0],'wal')
 
     def test_reimport_is_idempotent(self):
+        """Verify that reimport is idempotent."""
         data=sample()
         self.assertTrue(import_result(self.db,data,actor='tester')['imported'])
         self.assertFalse(import_result(self.db,data,actor='tester')['imported'])
@@ -45,6 +51,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(self.count('audit_log'),1)
 
     def test_two_runs_share_ad_and_keep_observations(self):
+        """Verify that two runs share ad and keep observations."""
         data=sample()
         import_result(self.db,data,actor='tester')
         second=copy.deepcopy(data)
@@ -58,6 +65,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertTrue(row['last_observed_at'].startswith('2026-11-15'))
 
     def test_invalid_record_rolls_back_entire_run(self):
+        """Verify that invalid record rolls back entire run."""
         data=sample()
         data['ads'].append({'ad_id':42})
         with self.assertRaises(ValueError):
@@ -66,6 +74,7 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(self.count(table),0)
 
     def test_modified_run_rejected_and_audit_is_immutable(self):
+        """Verify that modified run rejected and audit is immutable."""
         data=sample()
         import_result(self.db,data,actor='tester')
         data['query']='changed'

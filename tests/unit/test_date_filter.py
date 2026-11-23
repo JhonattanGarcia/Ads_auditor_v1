@@ -6,6 +6,7 @@ from brand_threat_monitor.collectors.date_filter import install_date_filter
 
 class DateFilterTests(unittest.TestCase):
     def test_every_page_keeps_range_without_changing_cursor(self):
+        """Verify that every page keeps range without changing cursor."""
         client=Mock()
         client._build_graphql_payload.side_effect=lambda **kw:kw
         events=[]
@@ -19,28 +20,38 @@ class DateFilterTests(unittest.TestCase):
         self.assertEqual([e['has_cursor'] for e in events],[False,True,True])
 
     def test_empty_maximum_becomes_null(self):
+        """Verify that empty maximum becomes null."""
         client=Mock(); client._build_graphql_payload.side_effect=lambda **kw:kw
         install_date_filter(client,'2026-11-14',None)
         payload=client._build_graphql_payload('doc',{},'AdLibrarySearchPaginationQuery')
         self.assertIsNone(payload['variables']['startDate']['max'])
 
     def test_other_queries_are_not_modified(self):
+        """Verify that other queries are not modified."""
         client=Mock(); client._build_graphql_payload.side_effect=lambda **kw:kw
         install_date_filter(client,'2026-11-14','2026-11-15')
         payload=client._build_graphql_payload('doc',{'adArchiveID':'test'},'AdLibraryV3AdDetailsQuery')
         self.assertNotIn('startDate',payload['variables'])
 
     def test_collection_does_not_send_server_dates_or_stop_on_old_ads(self):
+        """Verify that collection does not send server dates or stop on old ads."""
         from datetime import datetime,timezone
         from brand_threat_monitor.collectors.base import CollectedAd,CollectorCapabilities
         from brand_threat_monitor.ingestion.collector import collect
         class Source:
             capabilities=CollectorCapabilities(server_date_filter=True)
             stats={}
-            def __init__(self,**kwargs): pass
-            def __enter__(self): return self
-            def __exit__(self,*args): pass
+            def __init__(self,**kwargs):
+                """Initialize the controlled fake resource and its test counters."""
+                pass
+            def __enter__(self):
+                """Return the controlled fixture resource for the test context manager."""
+                return self
+            def __exit__(self,*args):
+                """Leave the fixture context without suppressing test failures."""
+                pass
             def search(self,**kwargs):
+                """Yield scripted fixture results or failures without contacting the live source."""
                 assert 'start_date' not in kwargs and 'end_date' not in kwargs
                 yield CollectedAd('old',datetime(2025,1,1,tzinfo=timezone.utc),None,{})
                 yield CollectedAd('new',datetime(2026,11,14,12,tzinfo=timezone.utc),None,{})
@@ -54,6 +65,7 @@ class DateFilterTests(unittest.TestCase):
         self.assertEqual([ad['ad_id'] for ad in result['ads']],['new'])
 
     def test_invalid_range_rejected(self):
+        """Verify that invalid range rejected."""
         with self.assertRaises(ValueError): install_date_filter(Mock(),'2026-11-15','2026-11-14')
 
 

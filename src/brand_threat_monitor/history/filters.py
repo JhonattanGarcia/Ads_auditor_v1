@@ -1,4 +1,4 @@
-﻿"""Filtros compartidos; fechas de observacion en America/Bogota."""
+"""Filtros compartidos; fechas de observacion en America/Bogota."""
 
 from dataclasses import dataclass
 from datetime import date,datetime
@@ -7,6 +7,7 @@ from ..config.profiles import COUNTRIES
 
 
 def local_day(value):
+    """Convert a timestamp to a Colombia calendar date for inclusive history filtering."""
     if not value: return None
     try:
         stamp=datetime.fromisoformat(value)
@@ -24,6 +25,7 @@ class Filters:
     date_to: str | None = None
 
     def __post_init__(self):
+        """Normalize filter values and reject invalid countries, dates or reversed date boundaries."""
         for field in ['country','criterion','advertiser_id','date_from','date_to']:
             value=getattr(self,field)
             if value is not None:
@@ -41,6 +43,7 @@ class Filters:
             raise ValueError('From date must not be later than To date')
 
     def matches(self, *, country=None, criterion=None, advertiser_id=None, observed_at=None):
+        """Test supplied observation context against every active filter, using inclusive local dates."""
         if self.country and (country or '').upper()!=self.country: return False
         if self.criterion and self.criterion.casefold() not in (criterion or '').casefold(): return False
         if self.advertiser_id and advertiser_id!=self.advertiser_id: return False
@@ -51,4 +54,5 @@ class Filters:
 
     @property
     def active(self):
+        """Report whether any filter is set so callers can avoid unnecessary context queries."""
         return any(getattr(self,k) for k in ['country','criterion','advertiser_id','date_from','date_to'])

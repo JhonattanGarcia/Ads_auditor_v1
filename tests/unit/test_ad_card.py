@@ -1,4 +1,4 @@
-﻿import tkinter as tk
+import tkinter as tk
 import unittest
 from unittest.mock import Mock
 from brand_threat_monitor.ui.ad_card import card_data,AdCard
@@ -6,6 +6,7 @@ from brand_threat_monitor.ui.ad_card import card_data,AdCard
 
 class AdCardTests(unittest.TestCase):
     def payload(self):
+        """Build the controlled payload fixture used by this test scenario."""
         return {'ad_id':'123','advertiser_id':'456','page':{'name':'Example Brand'},'is_active':True,
                 'delivery_start_time':'2026-11-19T12:00:00+00:00',
                 'creatives':[{'title':'A readable headline','body':'Full advertising text','link_url':'https://example.com/offer',
@@ -14,6 +15,7 @@ class AdCardTests(unittest.TestCase):
                 'impressions':{'lower_bound':0,'upper_bound':100}}
 
     def test_card_extracts_human_fields_without_losing_zero_metrics(self):
+        """Verify that card extracts human fields without losing zero metrics."""
         data=card_data(self.payload())
         self.assertEqual(data['name'],'Example Brand')
         self.assertEqual(data['domain'],'example.com')
@@ -23,12 +25,14 @@ class AdCardTests(unittest.TestCase):
         self.assertEqual(data['media_type'],'Image')
 
     def test_missing_fields_have_explicit_placeholders(self):
+        """Verify that missing fields have explicit placeholders."""
         data=card_data({})
         self.assertEqual(data['status'],'Status unavailable')
         self.assertEqual(data['start'],'Not available')
         self.assertEqual(data['domain'],'')
 
     def test_card_changes_creative_without_opening_external_links(self):
+        """Verify that card changes creative without opening external links."""
         root=tk.Tk(); root.withdraw(); callback=Mock()
         card=AdCard(root,on_open=callback)
         try:
@@ -44,6 +48,7 @@ class AdCardTests(unittest.TestCase):
         finally: card.destroy(); root.destroy()
 
     def test_fixed_images_and_scrollable_half_width_text(self):
+        """Verify that fixed images and scrollable half width text."""
         root=tk.Tk(); root.geometry('1000x400')
         card=AdCard(root); card.pack(fill='both',expand=True)
         try:
@@ -61,10 +66,12 @@ class AdCardTests(unittest.TestCase):
         finally: card.destroy(); root.destroy()
 
     def test_advertiser_picture_is_extracted(self):
+        """Verify that advertiser picture is extracted."""
         data=card_data({'page':{'profile_picture_url':'https://example.com/avatar.jpg'}})
         self.assertEqual(data['advertiser_images'],['https://example.com/avatar.jpg'])
 
     def test_image_clicks_open_profile_and_ad(self):
+        """Verify that image clicks open profile and ad."""
         from unittest.mock import patch
         root=tk.Tk(); root.withdraw(); card=AdCard(root)
         try:
@@ -80,6 +87,7 @@ class AdCardTests(unittest.TestCase):
         finally: card.destroy(); root.destroy()
 
     def test_external_links_include_all_creatives_and_unwrap_meta_redirects(self):
+        """Verify that external links include all creatives and unwrap meta redirects."""
         from brand_threat_monitor.ui.ad_card import external_links
         payload={'creatives':[{'link_url':'https://l.facebook.com/l.php?u=https%3A%2F%2Fexample.com%2Foffer',
             'body':'Visit https://example.com/offer or www.other.com.',
@@ -88,11 +96,13 @@ class AdCardTests(unittest.TestCase):
         self.assertEqual(external_links(payload),['https://example.com/offer','https://www.other.com','https://third.com/path'])
 
     def test_profile_fallback_and_invalid_urls(self):
+        """Verify that profile fallback and invalid urls."""
         data=card_data({'page':{'id':'456','page_url':'javascript:alert(1)'},'link_url':'javascript:alert(1)'})
         self.assertEqual(data['publisher_url'],'https://www.facebook.com/456')
         self.assertEqual(data['external_links'],[])
 
     def test_loaded_images_survive_switching_and_clearing(self):
+        """Verify that loaded images survive switching and clearing."""
         from PIL import Image
         root=tk.Tk(); root.withdraw(); card=AdCard(root)
         try:

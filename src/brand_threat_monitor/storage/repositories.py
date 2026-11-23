@@ -6,6 +6,7 @@ from uuid import uuid4
 
 
 def timestamp(value):
+    """Normalize an aware ISO timestamp to UTC and reject observations without timezone information."""
     stamp = datetime.fromisoformat(value)
     if stamp.tzinfo is None:
         raise ValueError("Las observaciones requieren zona horaria")
@@ -13,6 +14,7 @@ def timestamp(value):
 
 
 def identity(value, label):
+    """Require a nonempty string identity before writing related records to SQLite."""
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} debe ser una cadena no vacia")
     return value

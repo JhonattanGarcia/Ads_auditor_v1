@@ -23,6 +23,7 @@ ERROR='#C77B73'
 
 
 def font_family(widget,role='body'):
+    """Select the installed design font for a role, falling back to local system fonts."""
     available=set(font.families(widget))
     choices={'body':['Inter','Segoe UI','Arial'],
              'display':['Manrope','Segoe UI','Arial'],
@@ -31,6 +32,7 @@ def font_family(widget,role='body'):
 
 
 def apply_theme(root):
+    """Apply shared palette, typography and ttk state styles without changing application behavior."""
     body=font_family(root)
     display=font_family(root,'display')
     mono=font_family(root,'mono')

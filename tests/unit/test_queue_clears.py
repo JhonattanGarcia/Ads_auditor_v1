@@ -14,6 +14,7 @@ from brand_threat_monitor.ui.app import ad_start
 
 class QueueClearTests(unittest.TestCase):
     def setUp(self):
+        """Create isolated test fixtures and resources before each scenario."""
         self.temp=tempfile.TemporaryDirectory()
         self.context=connect(Path(self.temp.name)/'test.sqlite3')
         self.db=self.context.__enter__()
@@ -22,13 +23,16 @@ class QueueClearTests(unittest.TestCase):
         self.snapshot=load_lists(Path(__file__).resolve().parents[2]/'lists')
 
     def tearDown(self):
+        """Close test resources and remove temporary files after each scenario."""
         self.context.__exit__(None,None,None)
         self.temp.cleanup()
 
     def queue(self):
+        """Build the controlled queue fixture used by this test scenario."""
         return database_queue(self.db,self.snapshot)['queue']
 
     def test_clear_preserves_data_and_new_observation_returns(self):
+        """Verify that clear preserves data and new observation returns."""
         rows=self.queue()
         self.assertEqual(clear_unreviewed(self.db,rows,actor='tester'),1)
         self.assertEqual(self.queue(),[])
@@ -43,6 +47,7 @@ class QueueClearTests(unittest.TestCase):
         self.assertEqual(len(self.queue()),1)
 
     def test_explicit_pending_decision_is_preserved_even_with_stale_rows(self):
+        """Verify that explicit pending decision is preserved even with stale rows."""
         rows=self.queue()
         case=open_case(self.db,'fixture','ad1',actor='tester')
         decide(self.db,case['case_id'],'pending',actor='tester',reason='Needs investigation')
@@ -50,6 +55,7 @@ class QueueClearTests(unittest.TestCase):
         self.assertTrue(self.queue()[0]['reviewed'])
 
     def test_audit_failure_rolls_back(self):
+        """Verify that audit failure rolls back."""
         with patch('brand_threat_monitor.review.service.audit',side_effect=RuntimeError('audit failed')):
             with self.assertRaises(RuntimeError):
                 clear_unreviewed(self.db,self.queue(),actor='tester')
@@ -57,11 +63,13 @@ class QueueClearTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT count(*) FROM queue_clears').fetchone()[0],0)
 
     def test_ad_date_uses_colombia_time_and_handles_missing(self):
+        """Verify that ad date uses colombia time and handles missing."""
         self.assertEqual(ad_start({'delivery_start_time':'2026-11-19T01:00:00+00:00'}).strftime('%Y-%m-%d %H:%M'),'2026-11-18 20:00')
         self.assertIsNone(ad_start({}))
         self.assertIsNone(ad_start({'delivery_start_time':'invalid'}))
 
     def test_utc_display_preserves_instant(self):
+        """Verify that utc display preserves instant."""
         from brand_threat_monitor.ui.ad_card import card_data
         row={'delivery_start_time':'2026-11-19T01:00:00+00:00'}
         local=ad_start(row)

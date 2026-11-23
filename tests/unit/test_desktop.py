@@ -11,14 +11,17 @@ from brand_threat_monitor.storage.database import connect, initialize
 
 class DesktopTests(unittest.TestCase):
     def setUp(self):
+        """Create isolated test fixtures and resources before each scenario."""
         self.tmp=tempfile.TemporaryDirectory(); self.workspace=Path(self.tmp.name)
         self.root=tk.Tk(); self.root.withdraw()
         self.app=Application(self.root,self.workspace)
 
     def tearDown(self):
+        """Close test resources and remove temporary files after each scenario."""
         self.app.close(); self.tmp.cleanup()
 
     def test_load_manifest_does_not_query_source(self):
+        """Verify that load manifest does not query source."""
         project=Path(__file__).resolve().parents[2]
         with patch('brand_threat_monitor.ui.app.collect') as collect:
             self.app.load_path(project/'profiles/searches.json')
@@ -27,6 +30,7 @@ class DesktopTests(unittest.TestCase):
             collect.assert_not_called()
 
     def test_days_override_profile_without_requesting_identity(self):
+        """Verify that days override profile without requesting identity."""
         from brand_threat_monitor.config.profiles import SearchPlan, load_profile
         project=Path(__file__).resolve().parents[2]
         profile=load_profile(project/'profiles/example.json')
@@ -48,6 +52,7 @@ class DesktopTests(unittest.TestCase):
         self.app.set_busy(False)
 
     def test_manual_execution_skips_disabled_brazil_row(self):
+        """Verify that manual execution skips disabled brazil row."""
         self.app.search_rows.add('CO','pichincha',True)
         self.app.search_rows.add('BR','bradesco',False)
         self.app.render_searches()
@@ -65,6 +70,7 @@ class DesktopTests(unittest.TestCase):
         self.app.busy=False; self.app.set_busy(False)
 
     def test_enabled_checkbox_applies_immediately_and_autosaves(self):
+        """Verify that enabled checkbox applies immediately and autosaves."""
         row_id=self.app.search_rows.add('CO','pichincha',True)
         self.app.render_searches()
         self.app.profile_table.selection_set(row_id)
@@ -76,6 +82,7 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(self.app.search_rows.queries(1),[])
 
     def test_manual_rows_and_days_restore_when_reopening(self):
+        """Verify that manual rows and days restore when reopening."""
         self.app.search_rows.add('CO','pichincha',True)
         self.app.search_rows.add('BR','bradesco',False)
         self.app.render_searches()
@@ -90,6 +97,7 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(self.app.search_rows.queries(3)[0]['country'],'co')
 
     def test_saved_results_load_on_reopen_with_newest_first(self):
+        """Verify that saved results load on reopen with newest first."""
         from brand_threat_monitor.storage.repositories import import_result
         lists=self.workspace/'lists'; lists.mkdir()
         project=Path(__file__).resolve().parents[2]
@@ -112,6 +120,7 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(self.app.selected['ad_id'],'ad-new')
 
     def test_review_footer_and_detail_fit_minimum_window(self):
+        """Verify that review footer and detail fit minimum window."""
         self.root.geometry('850x600')
         self.app.tabs.select(self.app.audit)
         self.root.deiconify(); self.root.update()
@@ -121,6 +130,7 @@ class DesktopTests(unittest.TestCase):
         self.root.withdraw()
 
     def test_queue_selection_displays_payload_without_opening_url(self):
+        """Verify that queue selection displays payload without opening url."""
         lists=self.workspace/'lists'; lists.mkdir()
         project=Path(__file__).resolve().parents[2]
         for p in (project/'lists').glob('*.json'):
@@ -142,6 +152,7 @@ class DesktopTests(unittest.TestCase):
             browser.assert_not_called()
 
     def test_classification_does_not_request_confirmation(self):
+        """Verify that classification does not request confirmation."""
         from contextlib import nullcontext
         row={'source':'fixture','ad_id':'123','advertiser_id':'456','client_id':None,'state':'pending_review','case_id':'case1'}
         for decision in ('spam','attack','pending'):
@@ -159,6 +170,7 @@ class DesktopTests(unittest.TestCase):
                 self.assertEqual(decide.call_args.kwargs['actor'],'local_operator')
 
     def test_repeat_validation_and_stop(self):
+        """Verify that repeat validation and stop."""
         import time
         self.app.repeat_hours.set('1')
         self.app.repeat_enabled.set(True)
@@ -172,6 +184,7 @@ class DesktopTests(unittest.TestCase):
                 self.app.validate_repeat({'enabled':True,'hours':hours})
 
     def test_repeat_settings_restore_and_busy_batch_does_not_overlap(self):
+        """Verify that repeat settings restore and busy batch does not overlap."""
         self.app.repeat_hours.set('2')
         self.app.repeat_enabled.set(True); self.app.repeat_changed()
         saved=self.app.search_list_file
@@ -189,6 +202,7 @@ class DesktopTests(unittest.TestCase):
         self.assertIsNotNone(self.app.repeat_due)
 
     def test_due_repeat_starts_once(self):
+        """Verify that due repeat starts once."""
         import time
         self.app.repeat_due=time.monotonic()-1
         self.app.after_cancel(self.app.timer)
@@ -199,6 +213,7 @@ class DesktopTests(unittest.TestCase):
         self.app.busy=False
 
     def test_repeat_runs_at_frequency_and_rearms_after_batch_completion(self):
+        """Verify that repeat runs at frequency and rearms after batch completion."""
         project=Path(__file__).resolve().parents[2]
         self.app.search_rows.add('CO','Sample',True)
         lists=self.workspace/'lists'; lists.mkdir()
@@ -208,6 +223,7 @@ class DesktopTests(unittest.TestCase):
         self.app.repeat_enabled.set(True)
         self.app.after_cancel(self.app.timer)
         def poll_at(stamp):
+            """Poll scheduled UI work under a simulated monotonic clock without a real-time wait."""
             with patch('brand_threat_monitor.ui.app.time.monotonic',return_value=stamp):
                 self.app.poll()
             self.app.after_cancel(self.app.timer)
@@ -238,6 +254,70 @@ class DesktopTests(unittest.TestCase):
             self.app.busy=False
             self.app.set_busy(False)
             self.app.timer=self.app.after(150,self.app.poll)
+
+    def prepare_result_import(self):
+        """Create list configuration and a valid result file without querying Meta."""
+        from test_database import sample
+        lists=self.workspace/'lists'; lists.mkdir(exist_ok=True)
+        project=Path(__file__).resolve().parents[2]
+        for path in (project/'lists').glob('*.json'):
+            (lists/path.name).write_bytes(path.read_bytes())
+        document=sample()
+        document['ads'][0]['body']='Imported ad copy'
+        path=self.workspace/'results.json'
+        path.write_text(json.dumps(document),encoding='utf-8')
+        return path,document
+
+    def test_manual_results_import_displays_ad_and_is_idempotent(self):
+        """Import a transferred result into the queue without fetching or duplicating source data."""
+        path,document=self.prepare_result_import()
+        self.app.queue_filters.values['country'].set('BR')
+        with patch('brand_threat_monitor.ui.app.collect') as collect:
+            first=self.app.load_results_path(path)
+            second=self.app.load_results_path(path)
+            collect.assert_not_called()
+        self.assertTrue(first['imported']); self.assertFalse(second['imported'])
+        self.assertEqual(self.app.selected['ad_id'],'ad1')
+        self.assertIn('Imported ad copy',self.app.detail.get('1.0','end'))
+        self.assertEqual(self.app.queue_filters.values['country'].get(),'')
+        with connect(self.app.database) as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM runs').fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT count(*) FROM audit_log').fetchone()[0],1)
+
+    def test_manual_results_import_rejects_summary_and_rolls_back_invalid_ad(self):
+        """Reject wrong document types and preserve an empty database after invalid import."""
+        path,document=self.prepare_result_import()
+        summary=self.workspace/'run_summary.json'; summary.write_text('{}',encoding='utf-8')
+        with self.assertRaisesRegex(ValueError,'collector results.json'):
+            self.app.load_results_path(summary)
+        document['observations']=[]
+        path.write_text(json.dumps(document),encoding='utf-8')
+        with self.assertRaisesRegex(ValueError,'Invalid results content'): self.app.load_results_path(path)
+        with connect(self.app.database) as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM runs').fetchone()[0],0)
+
+    def test_manual_results_import_keeps_review_decisions(self):
+        """Reimporting results must not return classified ads to the review queue."""
+        from brand_threat_monitor.review.service import open_case,decide
+        path,document=self.prepare_result_import()
+        self.app.load_results_path(path)
+        with connect(self.app.database) as db:
+            case=open_case(db,'fixture','ad1',actor='tester')
+            decide(db,case['case_id'],'spam',actor='tester',reason='Fixture decision',confirm_id='ad1')
+        self.app.load_results_path(path)
+        self.assertEqual(self.app.rows,[])
+        self.assertIn('Imported search results',self.app.analysis_information)
+
+    def test_manual_results_picker_cancel_and_busy_guard(self):
+        """Cancelling the picker changes nothing and imports are blocked during collection."""
+        with patch('brand_threat_monitor.ui.app.filedialog.askopenfilename',return_value=''), patch.object(self.app,'load_results_path') as imported:
+            self.app.load_results()
+            imported.assert_not_called()
+        self.app.busy=True
+        try:
+            with self.assertRaisesRegex(ValueError,'Wait for the search'):
+                self.app.load_results()
+        finally: self.app.busy=False
 
 
 if __name__=='__main__': unittest.main()

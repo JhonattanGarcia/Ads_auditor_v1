@@ -12,12 +12,14 @@ KINDS = {'whitelist':'advertiser_id', 'blacklist':'advertiser_id', 'brownlist':'
 
 
 def text(value, field):
+    """Require a nonempty string field and report its list-validation context."""
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f'{field}: cadena no vacia obligatoria')
     return value
 
 
 def validate_document(document, kind):
+    """Validate list schema, identities, scopes and required blacklist antecedent references."""
     key = KINDS[kind]
     if document.get('schema_version') != '1.0' or document.get('list_type') != kind:
         raise ValueError(f'{kind}: version o tipo incorrecto')
@@ -63,6 +65,7 @@ class ListSnapshot:
     fingerprint: str
 
     def matching(self, kind, ad, client_id):
+        """Return entries whose source, entity identity and scope apply to this review context."""
         key=KINDS[kind]
         return [entry for entry in self.documents[kind]['entries']
                 if entry['active'] and entry['source']==ad['source']
@@ -72,6 +75,7 @@ class ListSnapshot:
 
 
 def load_lists(directory):
+    """Read and validate all three required JSON lists and compute their shared fingerprint."""
     directory=Path(directory)
     documents={}
     for kind in KINDS:
@@ -83,6 +87,7 @@ def load_lists(directory):
 
 
 def evaluate(ad, client_id, snapshot):
+    """Determine an ad's applicable list state, conflicts and review priority without classifying fraud."""
     text(ad.get('source'),'ad.source')
     text(ad.get('ad_id'),'ad.ad_id')
     white=snapshot.matching('whitelist',ad,client_id)

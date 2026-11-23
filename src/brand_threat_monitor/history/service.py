@@ -1,10 +1,11 @@
-﻿"""Consultas historicas filtradas sin modificar los datos originales."""
+"""Consultas historicas filtradas sin modificar los datos originales."""
 
 import json
 from .filters import Filters
 
 
 def observation_contexts(db):
+    """Join ads, observations and search queries into the contexts used by local history filters."""
     return [dict(row) for row in db.execute('''SELECT a.source,a.ad_id,a.advertiser_id,q.client_id,
         q.country,q.query,o.observed_at,o.run_id,a.payload_json FROM ads a
         JOIN ad_observations o ON o.source=a.source AND o.ad_id=a.ad_id
@@ -13,11 +14,13 @@ def observation_contexts(db):
 
 
 def matches_context(row,filters):
+    """Apply history filters to one observation and its country, query and publisher context."""
     return filters.matches(country=row['country'],criterion=row['query'],
                            advertiser_id=row['advertiser_id'],observed_at=row['observed_at'])
 
 
 def filter_cases(db,cases,filters):
+    """Keep cases with a matching observation in their applicable client or global scope."""
     if filters is None or not filters.active: return cases
     contexts=observation_contexts(db)
     result=[]
@@ -29,6 +32,7 @@ def filter_cases(db,cases,filters):
 
 
 def list_runs(db, *, client_id=None,filters=None):
+    """Return saved runs matching query context and local run-start dates without modifying history."""
     filters=filters or Filters()
     contexts=observation_contexts(db) if filters.advertiser_id else []
     result=[]

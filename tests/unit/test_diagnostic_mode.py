@@ -7,10 +7,17 @@ from brand_threat_monitor.ingestion.collector import collect
 class UnfilteredSource:
     capabilities=CollectorCapabilities(server_date_filter=True)
     stats={}
-    def __init__(self,**kwargs): pass
-    def __enter__(self): return self
-    def __exit__(self,*args): pass
+    def __init__(self,**kwargs):
+        """Initialize the controlled fake resource and its test counters."""
+        pass
+    def __enter__(self):
+        """Return the controlled fixture resource for the test context manager."""
+        return self
+    def __exit__(self,*args):
+        """Leave the fixture context without suppressing test failures."""
+        pass
     def search(self,**kwargs):
+        """Yield scripted fixture results or failures without contacting the live source."""
         for ad_id,stamp in [('old1','2026-05-09T12:00:00+00:00'),('matching','2026-11-17T12:00:00+00:00'),('old2','2026-01-01T12:00:00+00:00')]:
             yield CollectedAd(ad_id,datetime.fromisoformat(stamp),Advertiser('publisher'),
                               {'body':'Full original text '+ad_id,'api_fields':{'source_marker':ad_id}})
@@ -18,11 +25,13 @@ class UnfilteredSource:
 
 class DiagnosticModeTests(unittest.TestCase):
     def profile(self):
+        """Build the controlled profile fixture used by this test scenario."""
         return {'country':'sv','criteria':[{'query':'chivo'}],
                 'search':{'template_url':'https://www.facebook.com/ads/library/',
                           'date_range':{'mode':'fixed','min':'2026-11-16','max':'2026-11-17'}}}
 
     def test_diagnostic_mode_keeps_all_content_and_continues(self):
+        """Verify that diagnostic mode keeps all content and continues."""
         result=collect(self.profile(),collector_factory=UnfilteredSource,diagnostic_mode=True)
         self.assertEqual(result['scanned_ads'],3)
         self.assertEqual(result['excluded_by_date'],2)
@@ -35,6 +44,7 @@ class DiagnosticModeTests(unittest.TestCase):
         self.assertEqual(result['temporal_filter_status'],'post_filtered_locally')
 
     def test_normal_mode_also_postfilters_without_emergency_date_stop(self):
+        """Verify that normal mode also postfilters without emergency date stop."""
         result=collect(self.profile(),collector_factory=UnfilteredSource)
         self.assertEqual(result['scanned_ads'],3)
         self.assertEqual(result['errors'],[])

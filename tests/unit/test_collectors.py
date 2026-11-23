@@ -1,4 +1,4 @@
-﻿"""Verifica el contrato de fuente sin llamadas de red."""
+"""Verifica el contrato de fuente sin llamadas de red."""
 
 import unittest
 from datetime import datetime, timezone
@@ -16,6 +16,7 @@ FIXTURE = Path(__file__).resolve().parents[1] / 'fixtures/collector_ads.json'
 
 class CollectorTests(unittest.TestCase):
     def test_fixture_preserves_ids_and_missing_fields(self):
+        """Verify that fixture preserves ids and missing fields."""
         with FixtureCollector(FIXTURE) as collector:
             ads = list(collector.search(query='marca ficticia', country='CO', max_results=3))
         self.assertEqual(len(ads), 3)
@@ -26,6 +27,7 @@ class CollectorTests(unittest.TestCase):
         self.assertNotEqual(ads[0].to_dict()['body'], 'changed')
 
     def test_failure_does_not_remove_emitted_results(self):
+        """Verify that failure does not remove emitted results."""
         collector = FixtureCollector(FIXTURE, fail_after=1)
         stream = collector.search(query='marca ficticia', country='CO', max_results=3)
         self.assertEqual(next(stream).id, 'fixture_ad_001')
@@ -33,6 +35,7 @@ class CollectorTests(unittest.TestCase):
             next(stream)
 
     def test_cancellation_before_first_result(self):
+        """Verify that cancellation before first result."""
         event = Event()
         event.set()
         with self.assertRaises(CollectorCancelled):
@@ -40,6 +43,7 @@ class CollectorTests(unittest.TestCase):
                                                  max_results=3, cancel_event=event))
 
     def test_fixture_pipeline_records_partial_failure(self):
+        """Verify that fixture pipeline records partial failure."""
         profile = {'country': 'co', 'criteria': [{'query': 'marca ficticia'}],
                    'search': {'template_url': 'https://www.facebook.com/ads/library/',
                               'date_range': {'mode': 'fixed', 'min': '2026-11-14', 'max': '2026-11-14'}}}
@@ -50,10 +54,12 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(result['errors'][0]['type'], 'CollectorError')
 
     def test_meta_adapter_normalizes_model_and_error(self):
+        """Verify that meta adapter normalizes model and error."""
         from types import SimpleNamespace
         vendor_ad = SimpleNamespace(id='abc', delivery_start_time=datetime.now(timezone.utc),
                                     page=SimpleNamespace(id='publisher'), to_dict=lambda: {'body': 'example'})
         def stream(**kw):
+            """Build the controlled stream fixture used by this test scenario."""
             yield vendor_ad
             raise RuntimeError('network failed')
         with patch('meta_ads_collector.MetaAdsCollector') as backend:
